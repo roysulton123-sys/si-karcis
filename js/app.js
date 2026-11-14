@@ -847,19 +847,6 @@ function refreshLocalState() {
   renderAllViews();
 }
 
-function setCloudStatusBadge(variant, label) {
-  if (typeof document === 'undefined') return;
-  const statusDot = document.getElementById('firestore-status-dot');
-  const statusText = document.getElementById('firestore-status-text');
-  const dotClassMap = {
-    connected: 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse',
-    syncing: 'w-2 h-2 rounded-full bg-amber-400 animate-pulse',
-    local: 'w-2 h-2 rounded-full bg-sky-400'
-  };
-  if (statusDot) statusDot.className = dotClassMap[variant] || dotClassMap.connected;
-  if (statusText) statusText.textContent = label;
-}
-
 function getSyncBroadcastChannel() {
   if (typeof BroadcastChannel === 'undefined') return null;
   if (!state.sync.channel) {
@@ -938,7 +925,6 @@ function stopAutoSyncLoop() {
 
 function scheduleCloudReconnect() {
   if (!isFirebaseConfigured() || state.sync.retryTimer) return;
-  setCloudStatusBadge('syncing', 'Menghubungkan Ulang...');
   state.sync.retryTimer = setTimeout(() => {
     state.sync.retryTimer = null;
     if (isFirebaseConfigured()) {
@@ -1088,10 +1074,8 @@ async function syncCloudDataSilently(force = false) {
     if (viewNeedsRefresh) {
       renderAllViews();
     }
-    setCloudStatusBadge('connected', 'Sinkronisasi Otomatis Aktif');
   } catch (err) {
     console.warn('Sinkronisasi latar belakang tertunda:', err?.message || err);
-    setCloudStatusBadge('syncing', 'Menghubungkan Ulang...');
   } finally {
     state.sync.inFlight = false;
   }
@@ -1173,7 +1157,6 @@ function switchToLocalFallbackMode(reason = '') {
   console.warn('Beralih otomatis ke penyimpanan lokal:', reason);
   detachAllListeners();
   state.mode = 'local';
-  setCloudStatusBadge('local', 'Mode Lokal Aktif');
   refreshLocalState();
 }
 
@@ -1181,13 +1164,11 @@ function attachRealtimeListeners() {
   detachAllListeners();
 
   if (state.mode === 'local') {
-    setCloudStatusBadge('local', 'Mode Lokal Aktif');
     refreshLocalState();
     startAutoSyncLoop();
     return;
   }
 
-  setCloudStatusBadge('connected', 'Sinkronisasi Otomatis Aktif');
   state.sync.fingerprints = {};
 
   // CLOUD FIRESTORE LISTENERS (Real-time + Auto-sync fallback)
@@ -1212,7 +1193,6 @@ function attachRealtimeListeners() {
       state.facilities = items;
       writeLocalArray(LS_FACILITIES_KEY, items);
       state.loaded.facilities = true;
-      setCloudStatusBadge('connected', 'Sinkronisasi Otomatis Aktif');
       checkInitialSkeletonDismiss();
       populateFacilitySelects();
       renderAllViews();
@@ -1237,7 +1217,6 @@ function attachRealtimeListeners() {
       state.stocks = items;
       writeLocalArray(LS_STOCK_KEY, items);
       state.loaded.stocks = true;
-      setCloudStatusBadge('connected', 'Sinkronisasi Otomatis Aktif');
       checkInitialSkeletonDismiss();
       populateDistStockSelect();
       renderAllViews();
@@ -1266,7 +1245,6 @@ function attachRealtimeListeners() {
       state.distributions = items;
       writeLocalArray(LS_DISTRIBUSI_KEY, items);
       state.loaded.distributions = true;
-      setCloudStatusBadge('connected', 'Sinkronisasi Otomatis Aktif');
       checkInitialSkeletonDismiss();
       renderAllViews();
     },
@@ -6535,17 +6513,9 @@ function setupAndroidNativeAndPwaDashboard() {
     window.AndroidBridge || /SIKarcisAndroid/i.test(navigator.userAgent || '')
   );
   const dlSidebarBtn = document.getElementById('btn-download-apk-sidebar');
-  const nativeBadge = document.getElementById('android-native-badge');
-  const exitAppSidebarBtn = document.getElementById('btn-sidebar-exit-app');
 
-  if (isAndroidNative) {
-    if (dlSidebarBtn) dlSidebarBtn.classList.add('hidden');
-    if (nativeBadge) nativeBadge.classList.remove('hidden');
-  }
-  if (exitAppSidebarBtn) {
-    exitAppSidebarBtn.addEventListener('click', () => {
-      window.AndroidBridge?.confirmExitApp?.();
-    });
+  if (isAndroidNative && dlSidebarBtn) {
+    dlSidebarBtn.classList.add('hidden');
   }
 
   // Handler Tombol Back Hardware Android
