@@ -28,6 +28,7 @@ import android.widget.Toast;
 
 import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.FileProvider;
 import androidx.webkit.WebViewAssetLoader;
@@ -42,6 +43,7 @@ public class MainActivity extends AppCompatActivity {
     private WebView webView;
     private ConnectivityManager connectivityManager;
     private ConnectivityManager.NetworkCallback networkCallback;
+    private AlertDialog exitDialog;
 
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     @Override
@@ -114,7 +116,7 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void handleOnBackPressed() {
                 if (webView == null) {
-                    finish();
+                    showExitConfirmationDialog();
                     return;
                 }
                 webView.evaluateJavascript(
@@ -126,7 +128,7 @@ public class MainActivity extends AppCompatActivity {
                             if (webView.canGoBack()) {
                                 webView.goBack();
                             } else {
-                                finish();
+                                showExitConfirmationDialog();
                             }
                         }
                 );
@@ -158,6 +160,28 @@ public class MainActivity extends AppCompatActivity {
             connectivityManager.registerNetworkCallback(request, networkCallback);
         } catch (Exception ignored) {
         }
+    }
+
+    private void showExitConfirmationDialog() {
+        runOnUiThread(() -> {
+            if (isFinishing() || isDestroyed()) {
+                return;
+            }
+            if (exitDialog != null && exitDialog.isShowing()) {
+                return;
+            }
+            exitDialog = new AlertDialog.Builder(this)
+                    .setTitle("Keluar dari Aplikasi")
+                    .setMessage("Apakah Anda ingin keluar dari aplikasi?")
+                    .setCancelable(true)
+                    .setNegativeButton("Batal", (dialog, which) -> dialog.dismiss())
+                    .setPositiveButton("Ya, Keluar", (dialog, which) -> {
+                        dialog.dismiss();
+                        finishAffinity();
+                    })
+                    .create();
+            exitDialog.show();
+        });
     }
 
     private void triggerWebViewCloudSync() {
@@ -198,6 +222,9 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        if (exitDialog != null && exitDialog.isShowing()) {
+            exitDialog.dismiss();
+        }
         try {
             if (connectivityManager != null && networkCallback != null) {
                 connectivityManager.unregisterNetworkCallback(networkCallback);
@@ -215,6 +242,11 @@ public class MainActivity extends AppCompatActivity {
         @JavascriptInterface
         public boolean isAndroidApp() {
             return true;
+        }
+
+        @JavascriptInterface
+        public void confirmExitApp() {
+            showExitConfirmationDialog();
         }
 
         @JavascriptInterface

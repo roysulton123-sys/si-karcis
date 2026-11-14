@@ -6536,10 +6536,16 @@ function setupAndroidNativeAndPwaDashboard() {
   );
   const dlSidebarBtn = document.getElementById('btn-download-apk-sidebar');
   const nativeBadge = document.getElementById('android-native-badge');
+  const exitAppSidebarBtn = document.getElementById('btn-sidebar-exit-app');
 
   if (isAndroidNative) {
     if (dlSidebarBtn) dlSidebarBtn.classList.add('hidden');
     if (nativeBadge) nativeBadge.classList.remove('hidden');
+  }
+  if (exitAppSidebarBtn) {
+    exitAppSidebarBtn.addEventListener('click', () => {
+      window.AndroidBridge?.confirmExitApp?.();
+    });
   }
 
   // Handler Tombol Back Hardware Android

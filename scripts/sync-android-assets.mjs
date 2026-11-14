@@ -44,19 +44,38 @@ for (const dir of dirs) {
   }
 }
 
-// Salin logo Pemkab Malang sebagai ikon launcher & drawable aplikasi Android
-const logoPath = path.join(rootDir, 'assets', 'logo-kab-malang.png');
-if (fs.existsSync(logoPath)) {
-  const drawableDir = path.join(androidResDir, 'drawable');
-  fs.mkdirSync(drawableDir, { recursive: true });
-  fs.copyFileSync(logoPath, path.join(drawableDir, 'ic_launcher_logo.png'));
+// Salin ikon aplikasi SI-KARCIS ke drawable Android (adaptive icon) dan pertahankan mipmap presisi
+const drawableDir = path.join(androidResDir, 'drawable');
+fs.mkdirSync(drawableDir, { recursive: true });
+for (const legacyDrawable of ['ic_launcher_foreground.xml', 'ic_launcher_logo.png']) {
+  const legacyPath = path.join(drawableDir, legacyDrawable);
+  if (fs.existsSync(legacyPath)) {
+    fs.rmSync(legacyPath, { force: true });
+  }
+}
 
+const fgSrc = path.join(rootDir, 'assets', 'app-icon-adaptive-fg.png');
+const bgSrc = path.join(rootDir, 'assets', 'app-icon-adaptive-bg.png');
+if (fs.existsSync(fgSrc)) {
+  fs.copyFileSync(fgSrc, path.join(drawableDir, 'ic_launcher_foreground.png'));
+}
+if (fs.existsSync(bgSrc)) {
+  fs.copyFileSync(bgSrc, path.join(drawableDir, 'ic_launcher_bg.png'));
+}
+
+// Fallback isi mipmap hanya jika belum ada (agar mipmap presisi multi-DPI tidak tertimpa)
+const fallbackIcon = path.join(rootDir, 'assets', 'app-icon-192.png');
+if (fs.existsSync(fallbackIcon)) {
   const mipmapDirs = ['mipmap-mdpi', 'mipmap-hdpi', 'mipmap-xhdpi', 'mipmap-xxhdpi', 'mipmap-xxxhdpi'];
   for (const mDir of mipmapDirs) {
     const targetDir = path.join(androidResDir, mDir);
     fs.mkdirSync(targetDir, { recursive: true });
-    fs.copyFileSync(logoPath, path.join(targetDir, 'ic_launcher.png'));
-    fs.copyFileSync(logoPath, path.join(targetDir, 'ic_launcher_round.png'));
+    for (const file of ['ic_launcher.png', 'ic_launcher_round.png']) {
+      const targetFile = path.join(targetDir, file);
+      if (!fs.existsSync(targetFile)) {
+        fs.copyFileSync(fallbackIcon, targetFile);
+      }
+    }
   }
 }
 

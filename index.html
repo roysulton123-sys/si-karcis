@@ -8,8 +8,8 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <link rel="manifest" href="./manifest.webmanifest" />
-  <link rel="icon" type="image/png" href="./assets/logo-kab-malang.png" />
-  <link rel="apple-touch-icon" href="./assets/logo-kab-malang.png" />
+  <link rel="icon" type="image/png" href="./assets/app-icon.png" />
+  <link rel="apple-touch-icon" href="./assets/app-icon.png" />
   <title>SI-KARCIS — Sistem Manajemen Inventaris &amp; Retribusi Karcis</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
@@ -497,15 +497,24 @@
             <div id="android-app-active-box" class="hidden rounded-xl border border-blue-200 bg-blue-50/70 p-3 flex items-center justify-between gap-2">
               <div class="flex items-center gap-2 min-w-0">
                 <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
-                <p class="text-[11px] font-semibold text-slate-800 truncate">Aplikasi Android Aktif • Sinkron Real-Time dengan Desktop</p>
+                <p class="text-[11px] font-semibold text-slate-800 truncate">Aplikasi Android Aktif • Sinkron Real-Time</p>
               </div>
-              <button
-                type="button"
-                id="btn-login-sync-now"
-                class="px-2.5 py-1 rounded-lg bg-white border border-blue-200 text-[11px] font-bold text-blue-700 hover:bg-blue-100 transition shrink-0"
-              >
-                Sinkronkan
-              </button>
+              <div class="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  id="btn-login-sync-now"
+                  class="px-2.5 py-1 rounded-lg bg-white border border-blue-200 text-[11px] font-bold text-blue-700 hover:bg-blue-100 transition shrink-0"
+                >
+                  Sinkronkan
+                </button>
+                <button
+                  type="button"
+                  id="btn-login-exit-app"
+                  class="px-2.5 py-1 rounded-lg bg-rose-50 border border-rose-200 text-[11px] font-bold text-rose-700 hover:bg-rose-100 transition shrink-0"
+                >
+                  Keluar
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -889,6 +898,7 @@
       const dlBox = document.getElementById('android-download-box');
       const activeBox = document.getElementById('android-app-active-box');
       const syncNowBtn = document.getElementById('btn-login-sync-now');
+      const exitAppBtn = document.getElementById('btn-login-exit-app');
 
       if (isAndroidNative) {
         if (dlBox) dlBox.classList.add('hidden');
@@ -900,6 +910,19 @@
           showToast('Data akun disinkronkan dari Cloud.', 'success');
         });
       }
+      if (exitAppBtn) {
+        exitAppBtn.addEventListener('click', () => {
+          window.AndroidBridge?.confirmExitApp?.();
+        });
+      }
+
+      window.sikarcisHandleBackPress = function () {
+        if (typeof panelRegister !== 'undefined' && panelRegister && !panelRegister.classList.contains('hidden')) {
+          switchTab('login');
+          return true;
+        }
+        return false;
+      };
 
       if (
         'serviceWorker' in navigator &&

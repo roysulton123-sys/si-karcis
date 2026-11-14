@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sikarcis-shell-v2';
+const CACHE_NAME = 'sikarcis-shell-v3';
 const PRECACHE_URLS = [
   './',
   './index.html',
@@ -6,6 +6,8 @@ const PRECACHE_URLS = [
   './css/style.css',
   './js/app.js',
   './js/firebase-config.js',
+  './assets/app-icon.png',
+  './assets/app-icon-192.png',
   './assets/logo-kab-malang.png',
   './assets/logo-dispora.png',
   './manifest.webmanifest'
