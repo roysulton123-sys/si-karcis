@@ -56,6 +56,7 @@ const COL_DISTRIBUSI = 'karcis_distribusi';
 const COL_LOGS = 'karcis_logs';
 const COL_USERS = 'karcis_users';
 const COL_REQUESTS = 'karcis_requests';
+const COL_SETTINGS = 'karcis_settings';
 
 const LS_SIGNATORIES_KEY = 'sikarcis_signatories_v1';
 const LS_TAHUN_KEY = 'sikarcis_selected_tahun_v1';
@@ -117,7 +118,8 @@ const state = {
     distributions: null,
     logs: null,
     users: null,
-    requests: null
+    requests: null,
+    settings: null
   },
 
   // Selection state untuk hapus riwayat aktivitas via checkbox
@@ -1124,12 +1126,30 @@ function startAutoSyncLoop() {
         syncCloudDataSilently(true);
       }
     });
+    window.addEventListener('sikarcis-force-sync', () => {
+      if (isFirebaseConfigured()) {
+        if (state.mode !== 'cloud') {
+          state.mode = 'cloud';
+          attachRealtimeListeners();
+        }
+        syncCloudDataSilently(true);
+      } else {
+        refreshLocalState();
+      }
+    });
+    window.addEventListener('sikarcis-native-resume', () => {
+      if (state.mode === 'cloud') {
+        syncCloudDataSilently(true);
+      } else if (isFirebaseConfigured()) {
+        scheduleCloudReconnect();
+      }
+    });
   }
 
   if (state.mode === 'cloud') {
     state.sync.timer = setInterval(() => {
       syncCloudDataSilently(false);
-    }, 5000);
+    }, 3500);
   }
 }
 
@@ -1324,6 +1344,39 @@ function attachRealtimeListeners() {
     (err) => {
       console.error('Error listener karcis_requests:', err);
       scheduleCloudReconnect();
+    }
+  );
+
+  // 7. Listener karcis_settings/signatories (Sinkronisasi Pejabat Penanda Tangan Desktop <-> Android)
+  state.unsubscribers.settings = onSnapshot(
+    doc(db, COL_SETTINGS, 'signatories'),
+    (docSnap) => {
+      if (!docSnap.exists()) return;
+      const data = docSnap.data() || {};
+      const cfg = { ...DEFAULT_SIGNATORIES, ...data };
+      try {
+        localStorage.setItem(LS_SIGNATORIES_KEY, JSON.stringify(cfg));
+      } catch {}
+      const fieldMap = {
+        'sig-instansi': cfg.instansi,
+        'sig-kota': cfg.kota,
+        'sig-mengetahui-jabatan': cfg.mengetahuiJabatan,
+        'sig-mengetahui-nama': cfg.mengetahuiNama,
+        'sig-mengetahui-nip': cfg.mengetahuiNip,
+        'sig-pengelola-jabatan': cfg.pengelolaJabatan,
+        'sig-pengelola-nama': cfg.pengelolaNama,
+        'sig-pengelola-nip': cfg.pengelolaNip
+      };
+      Object.entries(fieldMap).forEach(([id, val]) => {
+        const el = document.getElementById(id);
+        if (el && document.activeElement !== el) {
+          el.value = val || '';
+        }
+      });
+      applySignatoriesToPrintDOM(cfg);
+    },
+    () => {
+      // Abaikan jika dokumen pengaturan belum dibuat
     }
   );
 
@@ -5612,9 +5665,18 @@ function saveSignatories(silent = false) {
   } catch (err) {
     console.warn('Gagal menyimpan pengaturan penanda tangan:', err);
   }
+  if (state.mode === 'cloud' && isFirebaseConfigured()) {
+    setDoc(
+      doc(db, COL_SETTINGS, 'signatories'),
+      { ...cfg, updatedAt: new Date().toISOString() },
+      { merge: true }
+    ).catch((err) => {
+      console.warn('Gagal menyinkronkan pejabat penanda tangan ke Cloud:', err);
+    });
+  }
   applySignatoriesToPrintDOM(cfg);
   if (!silent) {
-    showToast('success', 'Pengaturan Cetak Disimpan', 'Blok kop surat dan pejabat penanda tangan telah diperbarui.');
+    showToast('success', 'Pengaturan Cetak Disimpan', 'Blok kop surat dan pejabat penanda tangan telah diperbarui & disinkronkan.');
   }
   return cfg;
 }
@@ -5850,7 +5912,11 @@ function renderReportView() {
 function handlePrintReport() {
   saveSignatories(true);
   renderReportView();
-  window.print();
+  if (typeof window !== 'undefined' && window.AndroidBridge && typeof window.AndroidBridge.printPage === 'function') {
+    window.AndroidBridge.printPage(`Laporan_SI_KARCIS_TA_${state.tahun}`);
+  } else {
+    window.print();
+  }
 }
 
 function handleExportExcel() {
@@ -5915,8 +5981,18 @@ function handleExportExcel() {
   }
 
   const fileName = `Rekapitulasi_Karcis_TA_${state.tahun}_${getTodayISO()}.xlsx`;
-  window.XLSX.writeFile(wb, fileName);
-  showToast('success', 'File Excel Berhasil Diunduh', `Laporan disimpan sebagai ${fileName}.`);
+  if (typeof window !== 'undefined' && window.AndroidBridge && typeof window.AndroidBridge.saveBase64File === 'function') {
+    const b64 = window.XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
+    window.AndroidBridge.saveBase64File(
+      fileName,
+      b64,
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    showToast('success', 'File Excel Siap Dibagikan', `File ${fileName} berhasil diekspor di Android.`);
+  } else {
+    window.XLSX.writeFile(wb, fileName);
+    showToast('success', 'File Excel Berhasil Diunduh', `Laporan disimpan sebagai ${fileName}.`);
+  }
 }
 
 /* ==========================================================================
@@ -6023,6 +6099,29 @@ function bindEvents() {
       showToast('info', `Tahun Anggaran ${state.tahun}`, `Menampilkan data karcis untuk Tahun Anggaran ${state.tahun}.`);
     });
   }
+
+  // Tombol Sinkronisasi Cloud Langsung (Desktop & Android)
+  document.getElementById('btn-manual-cloud-sync')?.addEventListener('click', async () => {
+    const icon = document.getElementById('icon-manual-cloud-sync');
+    if (icon) icon.classList.add('animate-spin');
+    try {
+      if (isFirebaseConfigured()) {
+        if (state.mode !== 'cloud') {
+          state.mode = 'cloud';
+          attachRealtimeListeners();
+        }
+        await syncCloudDataSilently(true);
+        showToast('success', 'Data Tersinkronisasi', 'Data Desktop & Aplikasi Android telah diperbarui dari Cloud.');
+      } else {
+        refreshLocalState();
+        showToast('info', 'Data Lokal Diperbarui', 'Status data lokal telah disegarkan.');
+      }
+    } finally {
+      setTimeout(() => {
+        if (icon) icon.classList.remove('animate-spin');
+      }, 450);
+    }
+  });
 
   // Tombol Notifikasi Stok Menipis di Topbar
   document.getElementById('btn-topbar-lowstock')?.addEventListener('click', () => {
@@ -6429,9 +6528,69 @@ function bindEvents() {
   });
 }
 
+function setupAndroidNativeAndPwaDashboard() {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+
+  const isAndroidNative = Boolean(
+    window.AndroidBridge || /SIKarcisAndroid/i.test(navigator.userAgent || '')
+  );
+  const dlSidebarBtn = document.getElementById('btn-download-apk-sidebar');
+  const nativeBadge = document.getElementById('android-native-badge');
+
+  if (isAndroidNative) {
+    if (dlSidebarBtn) dlSidebarBtn.classList.add('hidden');
+    if (nativeBadge) nativeBadge.classList.remove('hidden');
+  }
+
+  // Handler Tombol Back Hardware Android
+  window.sikarcisHandleBackPress = function () {
+    const modalIds = [
+      'modal-confirm',
+      'modal-logs',
+      'modal-facility',
+      'modal-retur',
+      'modal-approve-request',
+      'modal-reject-request'
+    ];
+    for (const id of modalIds) {
+      const m = document.getElementById(id);
+      if (m && !m.classList.contains('hidden')) {
+        if (id === 'modal-confirm') {
+          closeConfirmModal(false);
+        } else {
+          m.classList.add('hidden');
+        }
+        return true;
+      }
+    }
+
+    const sidebar = document.getElementById('sidebar');
+    if (sidebar && !sidebar.classList.contains('-translate-x-full')) {
+      closeMobileSidebar();
+      return true;
+    }
+
+    if (state.currentUser?.role === 'admin' && state.activeView !== 'dashboard') {
+      switchView('dashboard');
+      return true;
+    }
+
+    return false;
+  };
+
+  if (
+    'serviceWorker' in navigator &&
+    location.protocol.startsWith('http') &&
+    location.hostname !== 'appassets.androidplatform.net'
+  ) {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  }
+}
+
 async function initAuthAndBoot() {
   if (typeof document === 'undefined') return;
 
+  setupAndroidNativeAndPwaDashboard();
   loadSignatories();
   bindEvents();
 

@@ -1,0 +1,75 @@
+name: Build & Publish Android APK (SI-KARCIS Dispora)
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'apk/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Sync Web Assets & Icons to Android Project
+        run: node scripts/sync-android-assets.mjs
+
+      - name: Generate Release Keystore
+        run: |
+          keytool -genkeypair -v \
+            -keystore android/app/release-key.jks \
+            -alias sikarcis \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass sikarcis2026 \
+            -keypass sikarcis2026 \
+            -dname "CN=Dispora Kabupaten Malang, OU=SI-KARCIS, O=Pemerintah Kabupaten Malang, L=Malang, ST=Jawa Timur, C=ID"
+
+      - name: Setup Gradle 8.6 & Build Signed Release APK
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.6'
+
+      - name: Assemble Release APK
+        run: gradle -p android assembleRelease --no-daemon
+
+      - name: Publish Signed APK to /apk/SI-KARCIS-Dispora.apk
+        run: |
+          mkdir -p apk
+          cp android/app/build/outputs/apk/release/app-release.apk apk/SI-KARCIS-Dispora.apk
+          ls -lh apk/SI-KARCIS-Dispora.apk
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f apk/SI-KARCIS-Dispora.apk
+          if ! git diff --staged --quiet; then
+            git commit -m "chore(android): update signed SI-KARCIS-Dispora.apk [skip ci]"
+            git pull --rebase origin main
+            git push origin main
+          fi
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SI-KARCIS-Dispora-APK
+          path: apk/SI-KARCIS-Dispora.apk

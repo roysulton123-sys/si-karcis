@@ -3,6 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" type="image/png" href="./assets/logo-kab-malang.png" />
+  <link rel="apple-touch-icon" href="./assets/logo-kab-malang.png" />
   <title>Dashboard — SI-KARCIS | Manajemen Inventaris, Permintaan Seri &amp; Retribusi</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
@@ -216,7 +223,25 @@
       </div>
 
       <!-- Sidebar Footer -->
-      <div class="p-4 border-t border-slate-800/90 bg-slate-950/40 shrink-0">
+      <div class="p-4 border-t border-slate-800/90 bg-slate-950/40 shrink-0 space-y-2.5">
+        <a
+          id="btn-download-apk-sidebar"
+          href="./apk/SI-KARCIS-Dispora.apk"
+          download="SI-KARCIS-Dispora.apk"
+          class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold bg-emerald-600/90 hover:bg-emerald-600 text-white shadow-xs transition"
+        >
+          <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
+          </svg>
+          <span>Unduh Aplikasi Android (.APK)</span>
+        </a>
+        <div
+          id="android-native-badge"
+          class="hidden w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-semibold bg-blue-950/80 border border-blue-700/50 text-blue-200"
+        >
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span>Aplikasi Android • Sinkron Desktop</span>
+        </div>
         <div class="flex items-center justify-between text-xs">
           <div class="flex items-center gap-2">
             <span id="firestore-status-dot" class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
@@ -268,6 +293,19 @@
               <option value="2028">TA 2028</option>
             </select>
           </div>
+
+          <!-- Tombol Sinkronisasi Cloud Langsung (Desktop & Android) -->
+          <button
+            type="button"
+            id="btn-manual-cloud-sync"
+            title="Sinkronkan Data dengan Cloud (Desktop &amp; Android)"
+            class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white/90 text-xs font-semibold text-slate-700 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 transition"
+          >
+            <svg id="icon-manual-cloud-sync" class="w-4 h-4 text-emerald-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            <span class="hidden md:inline">Sinkron</span>
+          </button>
 
           <!-- Low Stock Indicator Button (Admin Only) -->
           <button
