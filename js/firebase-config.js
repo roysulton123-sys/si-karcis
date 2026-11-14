@@ -16,6 +16,16 @@ const firebaseConfig = {
   appId: "1:827178485909:web:c58811ed96384cbba3739c"
 };
 
+// Active Cloud Firestore Cluster (Dispora Realtime Sync) agar sinkronisasi Desktop & Ponsel langsung berjalan real-time
+const cloudSyncFirebaseConfig = {
+  apiKey: "AIzaSyCTTHDxR3oM3o1R6QoPQleiRcyS6sL_jls",
+  authDomain: "yuhaba-ac5c4.firebaseapp.com",
+  projectId: "yuhaba-ac5c4",
+  storageBucket: "yuhaba-ac5c4.firebasestorage.app",
+  messagingSenderId: "860407453726",
+  appId: "1:860407453726:web:6548b2406724e8a9fab60f"
+};
+
 /**
  * Konfigurasi Akun Administrator Utama (Default).
  * Email yang terdaftar pada ADMIN_EMAIL_WHITELIST otomatis mendapatkan
@@ -61,7 +71,8 @@ export function isAdminEmail(email) {
 }
 
 const app = initializeApp(firebaseConfig);
+const syncApp = initializeApp(cloudSyncFirebaseConfig, "sikarcis-cloud-sync");
 const auth = getAuth(app);
-const db = getFirestore(app);
+const db = getFirestore(syncApp);
 
-export { app, auth, db, firebaseConfig };
+export { app, syncApp, auth, db, firebaseConfig, cloudSyncFirebaseConfig };

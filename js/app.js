@@ -476,17 +476,105 @@ async function ensureFacilitiesSeededCloud() {
     const snap = await getDocs(collection(db, COL_FACILITIES));
     if (snap.empty) {
       const batch = writeBatch(db);
-      INITIAL_FACILITIES_SEED.forEach((item) => {
-        const newRef = doc(collection(db, COL_FACILITIES));
-        batch.set(newRef, {
+      const seededFacs = [];
+      INITIAL_FACILITIES_SEED.forEach((item, idx) => {
+        const facId = `fac_seed_${idx + 1}`;
+        const newRef = doc(db, COL_FACILITIES, facId);
+        const facData = {
           namaFasilitas: item.namaFasilitas,
           tarifSatuan: Number(item.tarifSatuan),
           kodeDefault: String(item.kodeDefault).toUpperCase(),
           batasMinimum: Number(item.batasMinimum),
           isActive: Boolean(item.isActive),
           createdAt: serverTimestamp()
-        });
+        };
+        batch.set(newRef, facData, { merge: true });
+        seededFacs.push({ id: facId, ...facData });
       });
+
+      const stockSnap = await getDocs(collection(db, COL_STOCK));
+      if (stockSnap.empty && seededFacs.length >= 4) {
+        const sampleStocks = [
+          {
+            id: 'stk_seed_1',
+            tahun: '2026',
+            facilityId: seededFacs[0].id,
+            jenisFasilitas: seededFacs[0].namaFasilitas,
+            tarifSatuan: seededFacs[0].tarifSatuan,
+            kodeHuruf: seededFacs[0].kodeDefault,
+            angkaMulai: 1,
+            angkaSampai: 1000,
+            totalAwal: 1000,
+            sisaStok: 900,
+            angkaSisaMulai: 101,
+            isReturBatch: false,
+            createdAt: serverTimestamp()
+          },
+          {
+            id: 'stk_seed_2',
+            tahun: '2026',
+            facilityId: seededFacs[2].id,
+            jenisFasilitas: seededFacs[2].namaFasilitas,
+            tarifSatuan: seededFacs[2].tarifSatuan,
+            kodeHuruf: seededFacs[2].kodeDefault,
+            angkaMulai: 1,
+            angkaSampai: 500,
+            totalAwal: 500,
+            sisaStok: 500,
+            angkaSisaMulai: 1,
+            isReturBatch: false,
+            createdAt: serverTimestamp()
+          },
+          {
+            id: 'stk_seed_3',
+            tahun: '2026',
+            facilityId: seededFacs[3].id,
+            jenisFasilitas: seededFacs[3].namaFasilitas,
+            tarifSatuan: seededFacs[3].tarifSatuan,
+            kodeHuruf: seededFacs[3].kodeDefault,
+            angkaMulai: 1,
+            angkaSampai: 500,
+            totalAwal: 500,
+            sisaStok: 500,
+            angkaSisaMulai: 1,
+            isReturBatch: false,
+            createdAt: serverTimestamp()
+          }
+        ];
+        sampleStocks.forEach((stk) => {
+          const stkRef = doc(db, COL_STOCK, stk.id);
+          const { id, ...stkPayload } = stk;
+          batch.set(stkRef, stkPayload, { merge: true });
+        });
+
+        const distRef = doc(db, COL_DISTRIBUSI, 'dist_seed_1');
+        batch.set(
+          distRef,
+          {
+            tahun: '2026',
+            stockId: 'stk_seed_1',
+            facilityId: seededFacs[0].id,
+            tanggal: getTodayISO(),
+            jenisFasilitas: seededFacs[0].namaFasilitas,
+            tarifSatuan: seededFacs[0].tarifSatuan,
+            penerima: 'Budi Santoso (Loket PKL Area Timur)',
+            userUid: '',
+            userEmail: '',
+            jumlahKeluar: 100,
+            jumlahTerjual: 85,
+            jumlahRetur: 15,
+            totalNominal: 85 * seededFacs[0].tarifSatuan,
+            seriKeluar: 'PKL 00001 - PKL 00100',
+            seriTerjual: 'PKL 00001 - PKL 00085',
+            seriRetur: 'PKL 00086 - PKL 00100',
+            statusSetoran: 'Lunas Setor',
+            catatan: 'Shift Pagi - Sisa 15 lembar telah diretur',
+            createdAt: serverTimestamp()
+          },
+          { merge: true }
+        );
+      }
+
       await batch.commit();
       await logActivity(
         'AUTO_SEED_FASILITAS',
@@ -497,6 +585,68 @@ async function ensureFacilitiesSeededCloud() {
     console.error('Gagal melakukan auto-seeding fasilitas:', err);
   } finally {
     state.seedingInProgress = false;
+  }
+}
+
+async function migrateLocalDataToCloudOnce() {
+  if (typeof localStorage === 'undefined') return;
+  if (localStorage.getItem('sikarcis_cloud_migrated_v2') === '1') return;
+
+  try {
+    const batch = writeBatch(db);
+    let writeCount = 0;
+
+    // 1. Pastikan Admin Utama ada di COL_USERS + unggah user lokal
+    const localUsers = readLocalArray(LS_USERS_KEY);
+    for (const u of localUsers) {
+      const uid = u.uid || u.id;
+      if (!uid) continue;
+      batch.set(doc(db, COL_USERS, uid), { ...u, uid }, { merge: true });
+      writeCount++;
+    }
+
+    // 2. Unggah fasilitas kustom lokal jika ada
+    const localFacs = readLocalArray(LS_FACILITIES_KEY);
+    for (const f of localFacs) {
+      if (!f.id) continue;
+      const { id, ...payload } = f;
+      batch.set(doc(db, COL_FACILITIES, id), payload, { merge: true });
+      writeCount++;
+    }
+
+    // 3. Unggah stok lokal jika ada
+    const localStocks = readLocalArray(LS_STOCK_KEY);
+    for (const s of localStocks) {
+      if (!s.id) continue;
+      const { id, ...payload } = s;
+      batch.set(doc(db, COL_STOCK, id), payload, { merge: true });
+      writeCount++;
+    }
+
+    // 4. Unggah distribusi lokal jika ada
+    const localDists = readLocalArray(LS_DISTRIBUSI_KEY);
+    for (const d of localDists) {
+      if (!d.id) continue;
+      const { id, ...payload } = d;
+      batch.set(doc(db, COL_DISTRIBUSI, id), payload, { merge: true });
+      writeCount++;
+    }
+
+    // 5. Unggah request lokal jika ada
+    const localReqs = readLocalArray(LS_REQUESTS_KEY);
+    for (const r of localReqs) {
+      if (!r.id) continue;
+      const { id, ...payload } = r;
+      batch.set(doc(db, COL_REQUESTS, id), payload, { merge: true });
+      writeCount++;
+    }
+
+    if (writeCount > 0) {
+      await batch.commit();
+    }
+    localStorage.setItem('sikarcis_cloud_migrated_v2', '1');
+  } catch (err) {
+    console.warn('Migrasi data lokal ke Cloud dilewati:', err);
   }
 }
 
@@ -721,6 +871,7 @@ function attachRealtimeListeners() {
         String(a.namaFasilitas || '').localeCompare(String(b.namaFasilitas || ''), 'id')
       );
       state.facilities = items;
+      writeLocalArray(LS_FACILITIES_KEY, items);
       state.loaded.facilities = true;
       checkInitialSkeletonDismiss();
       populateFacilitySelects();
@@ -743,6 +894,7 @@ function attachRealtimeListeners() {
       });
       items.sort((a, b) => getTimestampMillis(b.createdAt) - getTimestampMillis(a.createdAt));
       state.stocks = items;
+      writeLocalArray(LS_STOCK_KEY, items);
       state.loaded.stocks = true;
       checkInitialSkeletonDismiss();
       renderAllViews();
@@ -768,6 +920,7 @@ function attachRealtimeListeners() {
         return getTimestampMillis(b.createdAt) - getTimestampMillis(a.createdAt);
       });
       state.distributions = items;
+      writeLocalArray(LS_DISTRIBUSI_KEY, items);
       state.loaded.distributions = true;
       checkInitialSkeletonDismiss();
       renderAllViews();
@@ -789,6 +942,7 @@ function attachRealtimeListeners() {
       });
       items.sort((a, b) => getTimestampMillis(b.waktu) - getTimestampMillis(a.waktu));
       state.logs = items;
+      writeLocalArray(LS_LOGS_KEY, items);
       state.loaded.logs = true;
       checkInitialSkeletonDismiss();
       renderAuditLogsUI();
@@ -808,7 +962,20 @@ function attachRealtimeListeners() {
       });
       items.sort((a, b) => getTimestampMillis(b.createdAt) - getTimestampMillis(a.createdAt));
       state.users = items;
+      writeLocalArray(LS_USERS_KEY, items);
       state.loaded.users = true;
+      if (state.currentUser && state.currentUser.role !== 'admin' && items.length > 0) {
+        const me = items.find(
+          (u) =>
+            u.uid === state.currentUser.uid ||
+            String(u.email || '').toLowerCase() === String(state.currentUser.email || '').toLowerCase()
+        );
+        if (!me || me.status !== 'approved') {
+          localStorage.removeItem(LS_SESSION_KEY);
+          window.location.replace('./index.html');
+          return;
+        }
+      }
       checkInitialSkeletonDismiss();
       renderUsersView();
       renderDashboardAlerts();
@@ -829,6 +996,7 @@ function attachRealtimeListeners() {
       });
       items.sort((a, b) => getTimestampMillis(b.createdAt) - getTimestampMillis(a.createdAt));
       state.requests = items;
+      writeLocalArray(LS_REQUESTS_KEY, items);
       state.loaded.requests = true;
       checkInitialSkeletonDismiss();
       renderAdminRequestsQueue();
@@ -2038,6 +2206,8 @@ function renderUserPortalView() {
   if (elNominal) elNominal.textContent = `Nilai: ${formatRupiah(totalNominal)}`;
   if (elRetur) elRetur.textContent = `${formatNumber(totalRetur)} Lembar`;
 
+  populateUserReturBatchSelect(myDists);
+
   // 1. Render Tabel Karcis Diterima & Pengembalian Sisa Karcis Sesuai Nomor Seri
   const distBody = document.getElementById('user-dist-table-body');
   const distMobile = document.getElementById('user-dist-mobile-cards');
@@ -2056,18 +2226,19 @@ function renderUserPortalView() {
       distBody.innerHTML = myDists
         .map((d) => {
           const alreadyReturned = (Number(d.jumlahRetur) || 0) > 0;
+          const sisaBisaRetur = Math.max(0, (Number(d.jumlahKeluar) || 0) - (Number(d.jumlahRetur) || 0));
           const isLunas = d.statusSetoran === 'Lunas Setor';
           const statusPill = isLunas
             ? '<span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">Lunas Setor</span>'
             : '<span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200">Belum Setor</span>';
 
           const actionBtn =
-            alreadyReturned || isLunas
+            sisaBisaRetur <= 0 || isLunas
               ? `<button type="button" data-open-retur="${escapeHtml(d.id)}" class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition">
                   Lihat Detail Seri
                 </button>`
               : `<button type="button" data-open-retur="${escapeHtml(d.id)}" class="px-3.5 py-1.5 rounded-xl bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold shadow-2xs transition">
-                  Kembalikan Sisa Karcis
+                  ${alreadyReturned ? 'Kembalikan Lagi' : 'Kembalikan Sisa Karcis'}
                 </button>`;
 
           return `
@@ -2100,6 +2271,9 @@ function renderUserPortalView() {
       distMobile.innerHTML = myDists
         .map((d) => {
           const alreadyReturned = (Number(d.jumlahRetur) || 0) > 0;
+          const sisaBisaRetur = Math.max(0, (Number(d.jumlahKeluar) || 0) - (Number(d.jumlahRetur) || 0));
+          const isLunas = d.statusSetoran === 'Lunas Setor';
+          const locked = sisaBisaRetur <= 0 || isLunas;
           return `
             <div class="rounded-xl border border-slate-200 p-4 space-y-2.5 bg-white">
               <div class="flex items-start justify-between gap-2">
@@ -2121,9 +2295,9 @@ function renderUserPortalView() {
               <div class="flex items-center justify-between pt-2 border-t border-slate-100">
                 <span class="font-extrabold text-emerald-700 text-sm">${formatRupiah(d.totalNominal)}</span>
                 <button type="button" data-open-retur="${escapeHtml(d.id)}" class="px-3 py-1.5 rounded-xl ${
-                  alreadyReturned ? 'bg-slate-100 text-slate-700' : 'bg-blue-700 text-white'
+                  locked ? 'bg-slate-100 text-slate-700' : 'bg-blue-700 text-white'
                 } text-xs font-bold">
-                  ${alreadyReturned ? 'Detail Seri' : 'Kembalikan Sisa Karcis'}
+                  ${locked ? 'Detail Seri' : alreadyReturned ? 'Kembalikan Lagi' : 'Kembalikan Sisa Karcis'}
                 </button>
               </div>
             </div>
@@ -2202,6 +2376,379 @@ function renderUserPortalView() {
         `)
         .join('');
     }
+  }
+}
+
+function populateUserReturBatchSelect(myDistsArg) {
+  const selectEl = document.getElementById('user-retur-batch');
+  if (!selectEl) return;
+
+  const prevVal = selectEl.value;
+  const myDists = Array.isArray(myDistsArg) ? myDistsArg : getMyDistributions();
+  const returnableDists = myDists.filter(
+    (d) => (Number(d.jumlahKeluar) || 0) - (Number(d.jumlahRetur) || 0) > 0 && d.statusSetoran !== 'Lunas Setor'
+  );
+
+  selectEl.innerHTML = '';
+
+  if (returnableDists.length > 0) {
+    const grpBatch = document.createElement('optgroup');
+    grpBatch.label = 'Batch Karcis Diterima (Sesuai Nomor Seri)';
+    returnableDists.forEach((d) => {
+      const sisa = Math.max(0, (Number(d.jumlahKeluar) || 0) - (Number(d.jumlahRetur) || 0));
+      const opt = document.createElement('option');
+      opt.value = `dist:${d.id}`;
+      opt.textContent = `${d.jenisFasilitas} • ${d.seriKeluar} (Tersisa ${formatNumber(sisa)} Lembar)`;
+      grpBatch.appendChild(opt);
+    });
+    selectEl.appendChild(grpBatch);
+  }
+
+  const activeFacs = state.facilities.filter((f) => f.isActive !== false);
+  if (activeFacs.length > 0) {
+    const grpFac = document.createElement('optgroup');
+    grpFac.label = 'Pengembalian Karcis Berdasarkan Jenis Fasilitas';
+    activeFacs.forEach((f) => {
+      const opt = document.createElement('option');
+      opt.value = `fac:${f.id}`;
+      opt.textContent = `${f.namaFasilitas} (${formatRupiah(f.tarifSatuan)} / lembar)`;
+      grpFac.appendChild(opt);
+    });
+    selectEl.appendChild(grpFac);
+  }
+
+  if (prevVal && Array.from(selectEl.options).some((o) => o.value === prevVal)) {
+    selectEl.value = prevVal;
+  }
+
+  updateUserDirectReturPreview();
+}
+
+function updateUserDirectReturPreview() {
+  const selectEl = document.getElementById('user-retur-batch');
+  const jmlInput = document.getElementById('user-retur-jumlah-input');
+  const summaryEl = document.getElementById('preview-user-retur-summary');
+  if (!selectEl || !jmlInput || !summaryEl) return;
+
+  const val = selectEl.value || '';
+  const jml = Math.max(0, parseInt(jmlInput.value || '0', 10) || 0);
+
+  if (val.startsWith('dist:')) {
+    const distId = val.slice(5);
+    const distObj = state.distributions.find((d) => d.id === distId);
+    if (!distObj) {
+      summaryEl.textContent = 'Pilih batch karcis yang ingin dikembalikan.';
+      return;
+    }
+    const prevRetur = Number(distObj.jumlahRetur) || 0;
+    const maxCanReturn = Math.max(0, (Number(distObj.jumlahKeluar) || 0) - prevRetur);
+    jmlInput.max = String(maxCanReturn);
+
+    if (jml <= 0) {
+      summaryEl.innerHTML = `Maksimal dapat dikembalikan: <strong>${formatNumber(maxCanReturn)} Lembar</strong> dari seri <strong>${escapeHtml(distObj.seriKeluar)}</strong>.`;
+      return;
+    }
+    const effectiveAdd = Math.min(maxCanReturn, jml);
+    const calc = calculateReturBreakdown(distObj, prevRetur + effectiveAdd);
+    const bdl = toBendelLembar(effectiveAdd);
+    summaryEl.innerHTML = `Mengembalikan <strong>${formatNumber(effectiveAdd)} Lembar</strong> (${bdl.shortFormatted}) ke Admin • Terpakai: <strong>${formatNumber(calc.jumlahTerjual)} Lbr</strong> (${formatRupiah(calc.totalNominal)}).`;
+  } else if (val.startsWith('fac:')) {
+    const facId = val.slice(4);
+    const fac = state.facilities.find((f) => f.id === facId);
+    jmlInput.removeAttribute('max');
+    if (!fac || jml <= 0) {
+      summaryEl.textContent = 'Isikan berapa lembar karcis yang ingin dikembalikan ke Admin.';
+      return;
+    }
+    const bdl = toBendelLembar(jml);
+    summaryEl.innerHTML = `Mengembalikan <strong>${formatNumber(jml)} Lembar</strong> (${bdl.shortFormatted}) karcis <strong>${escapeHtml(fac.namaFasilitas)}</strong> langsung ke Gudang Stok Admin.`;
+  } else {
+    summaryEl.textContent = 'Pilih karcis dan masukkan jumlah lembar yang dikembalikan.';
+  }
+}
+
+async function handleUserDirectReturSubmit(e) {
+  e.preventDefault();
+  if (!state.currentUser) return;
+
+  const selectEl = document.getElementById('user-retur-batch');
+  const jmlInput = document.getElementById('user-retur-jumlah-input');
+  const catatanInput = document.getElementById('user-retur-catatan-input');
+
+  const val = selectEl?.value || '';
+  const lembar = parseInt(jmlInput?.value || '0', 10);
+  const catatan = (catatanInput?.value || '').trim();
+
+  if (!val) {
+    showToast('warning', 'Karcis Belum Dipilih', 'Pilih batch atau jenis karcis yang akan dikembalikan ke Admin.');
+    return;
+  }
+  if (!Number.isInteger(lembar) || lembar <= 0) {
+    showToast('warning', 'Jumlah Lembar Tidak Valid', 'Masukkan jumlah lembar karcis yang dikembalikan (minimal 1 lembar).');
+    return;
+  }
+
+  const namaPetugas = state.currentUser.nama || state.currentUser.email || 'Petugas';
+  const unitPetugas = state.currentUser.unitTugas || 'Petugas Lapangan';
+
+  try {
+    if (val.startsWith('dist:')) {
+      const distId = val.slice(5);
+      const distObj = state.distributions.find((d) => d.id === distId);
+      if (!distObj) {
+        showToast('error', 'Data Tidak Ditemukan', 'Batch distribusi karcis tidak ditemukan.');
+        return;
+      }
+
+      const prevRetur = Number(distObj.jumlahRetur) || 0;
+      const maxCanReturn = Math.max(0, (Number(distObj.jumlahKeluar) || 0) - prevRetur);
+      if (lembar > maxCanReturn) {
+        showToast(
+          'warning',
+          'Melebihi Sisa Karcis',
+          `Jumlah pengembalian maksimal untuk batch ini adalah ${formatNumber(maxCanReturn)} lembar.`
+        );
+        return;
+      }
+
+      const newTotalRetur = prevRetur + lembar;
+      const calc = calculateReturBreakdown(distObj, newTotalRetur);
+      const parsed = parseSeriRange(distObj.seriKeluar);
+      const thisReturnStart = parsed ? parsed.end - newTotalRetur + 1 : 1;
+      const thisReturnEnd = parsed ? parsed.end - prevRetur : lembar;
+      const kodeHuruf = calc.kodeHuruf || suggestKodeFromFacilityName(distObj.jenisFasilitas);
+      const finalCatatan = catatan || distObj.catatan || `Pengembalian ${lembar} lembar oleh ${namaPetugas}`;
+
+      if (state.mode === 'cloud') {
+        await runTransaction(db, async (tx) => {
+          const distRef = doc(db, COL_DISTRIBUSI, distObj.id);
+          const distSnap = await tx.get(distRef);
+          if (!distSnap.exists()) throw new Error('Data distribusi tidak ditemukan.');
+
+          const parentRef = distObj.stockId ? doc(db, COL_STOCK, distObj.stockId) : null;
+          const parentSnap = parentRef ? await tx.get(parentRef) : null;
+
+          if (
+            parentSnap &&
+            parentSnap.exists() &&
+            thisReturnEnd + 1 === Number(parentSnap.data().angkaSisaMulai)
+          ) {
+            const pData = parentSnap.data();
+            tx.update(parentRef, {
+              sisaStok: Number(pData.sisaStok) + lembar,
+              angkaSisaMulai: thisReturnStart
+            });
+          } else {
+            const newReturStockRef = doc(collection(db, COL_STOCK));
+            tx.set(newReturStockRef, {
+              tahun: String(state.tahun),
+              facilityId: distObj.facilityId,
+              jenisFasilitas: distObj.jenisFasilitas,
+              tarifSatuan: Number(distObj.tarifSatuan) || 0,
+              kodeHuruf,
+              angkaMulai: thisReturnStart,
+              angkaSampai: thisReturnEnd,
+              totalAwal: lembar,
+              sisaStok: lembar,
+              angkaSisaMulai: thisReturnStart,
+              isReturBatch: true,
+              createdAt: serverTimestamp()
+            });
+          }
+
+          tx.update(distRef, {
+            jumlahTerjual: calc.jumlahTerjual,
+            jumlahRetur: calc.jumlahRetur,
+            totalNominal: calc.totalNominal,
+            seriTerjual: calc.seriTerjual,
+            seriRetur: calc.seriRetur,
+            catatan: finalCatatan
+          });
+        });
+      } else {
+        const stocks = readLocalArray(LS_STOCK_KEY);
+        const pIdx = stocks.findIndex((s) => s.id === distObj.stockId);
+        if (pIdx !== -1 && thisReturnEnd + 1 === Number(stocks[pIdx].angkaSisaMulai)) {
+          stocks[pIdx].sisaStok = Number(stocks[pIdx].sisaStok) + lembar;
+          stocks[pIdx].angkaSisaMulai = thisReturnStart;
+        } else {
+          stocks.unshift({
+            id: generateId('stk_ret'),
+            tahun: String(state.tahun),
+            facilityId: distObj.facilityId,
+            jenisFasilitas: distObj.jenisFasilitas,
+            tarifSatuan: Number(distObj.tarifSatuan) || 0,
+            kodeHuruf,
+            angkaMulai: thisReturnStart,
+            angkaSampai: thisReturnEnd,
+            totalAwal: lembar,
+            sisaStok: lembar,
+            angkaSisaMulai: thisReturnStart,
+            isReturBatch: true,
+            createdAt: new Date().toISOString()
+          });
+        }
+        writeLocalArray(LS_STOCK_KEY, stocks);
+
+        const dists = readLocalArray(LS_DISTRIBUSI_KEY);
+        const dIdx = dists.findIndex((d) => d.id === distObj.id);
+        if (dIdx !== -1) {
+          dists[dIdx].jumlahTerjual = calc.jumlahTerjual;
+          dists[dIdx].jumlahRetur = calc.jumlahRetur;
+          dists[dIdx].totalNominal = calc.totalNominal;
+          dists[dIdx].seriTerjual = calc.seriTerjual;
+          dists[dIdx].seriRetur = calc.seriRetur;
+          dists[dIdx].catatan = finalCatatan;
+          writeLocalArray(LS_DISTRIBUSI_KEY, dists);
+        }
+        refreshLocalState();
+      }
+
+      await logActivity(
+        'RETUR_SERI_KARCIS',
+        `Petugas ${namaPetugas} mengembalikan ${formatNumber(lembar)} lembar karcis ${distObj.jenisFasilitas} (${formatSeriRange(kodeHuruf, thisReturnStart, thisReturnEnd)}) ke Admin.`
+      );
+
+      if (jmlInput) jmlInput.value = '';
+      if (catatanInput) catatanInput.value = '';
+      updateUserDirectReturPreview();
+
+      showToast(
+        'success',
+        'Pengembalian Karcis Berhasil',
+        `${formatNumber(lembar)} lembar karcis ${distObj.jenisFasilitas} berhasil dikembalikan ke Gudang Stok Admin.`
+      );
+      return;
+    }
+
+    if (val.startsWith('fac:')) {
+      const facId = val.slice(4);
+      const fac = state.facilities.find((f) => f.id === facId);
+      if (!fac) {
+        showToast('error', 'Fasilitas Tidak Ditemukan', 'Pilih jenis fasilitas karcis yang valid.');
+        return;
+      }
+
+      const kodeHuruf = String(fac.kodeDefault || suggestKodeFromFacilityName(fac.namaFasilitas)).toUpperCase();
+      const sameFacStocks = state.stocks.filter(
+        (s) =>
+          s.facilityId === fac.id ||
+          normalizeFacilityKey(s.jenisFasilitas) === normalizeFacilityKey(fac.namaFasilitas)
+      );
+      const maxEnd = sameFacStocks.reduce((mx, s) => Math.max(mx, Number(s.angkaSampai) || 0), 0);
+      const returnStart = maxEnd + 1;
+      const returnEnd = returnStart + lembar - 1;
+      const seriReturRange = formatSeriRange(kodeHuruf, returnStart, returnEnd);
+      const penerimaStr = `${namaPetugas} (${unitPetugas})`;
+      const finalCatatan = catatan || `Pengembalian langsung ${lembar} lembar oleh petugas ke Admin`;
+
+      if (state.mode === 'cloud') {
+        const batch = writeBatch(db);
+        const newStockRef = doc(collection(db, COL_STOCK));
+        batch.set(newStockRef, {
+          tahun: String(state.tahun),
+          facilityId: fac.id,
+          jenisFasilitas: fac.namaFasilitas,
+          tarifSatuan: Number(fac.tarifSatuan) || 0,
+          kodeHuruf,
+          angkaMulai: returnStart,
+          angkaSampai: returnEnd,
+          totalAwal: lembar,
+          sisaStok: lembar,
+          angkaSisaMulai: returnStart,
+          isReturBatch: true,
+          createdAt: serverTimestamp()
+        });
+
+        const newDistRef = doc(collection(db, COL_DISTRIBUSI));
+        batch.set(newDistRef, {
+          tahun: String(state.tahun),
+          stockId: newStockRef.id,
+          facilityId: fac.id,
+          tanggal: getTodayISO(),
+          jenisFasilitas: fac.namaFasilitas,
+          tarifSatuan: Number(fac.tarifSatuan) || 0,
+          penerima: penerimaStr,
+          userUid: state.currentUser.uid || '',
+          userEmail: state.currentUser.email || '',
+          jumlahKeluar: lembar,
+          jumlahTerjual: 0,
+          jumlahRetur: lembar,
+          totalNominal: 0,
+          seriKeluar: seriReturRange,
+          seriTerjual: 'Habis Diretur (0 Terjual)',
+          seriRetur: seriReturRange,
+          statusSetoran: 'Lunas Setor',
+          catatan: finalCatatan,
+          createdAt: serverTimestamp()
+        });
+
+        await batch.commit();
+      } else {
+        const newStockId = generateId('stk_ret');
+        const stocks = readLocalArray(LS_STOCK_KEY);
+        stocks.unshift({
+          id: newStockId,
+          tahun: String(state.tahun),
+          facilityId: fac.id,
+          jenisFasilitas: fac.namaFasilitas,
+          tarifSatuan: Number(fac.tarifSatuan) || 0,
+          kodeHuruf,
+          angkaMulai: returnStart,
+          angkaSampai: returnEnd,
+          totalAwal: lembar,
+          sisaStok: lembar,
+          angkaSisaMulai: returnStart,
+          isReturBatch: true,
+          createdAt: new Date().toISOString()
+        });
+        writeLocalArray(LS_STOCK_KEY, stocks);
+
+        const dists = readLocalArray(LS_DISTRIBUSI_KEY);
+        dists.unshift({
+          id: generateId('dist'),
+          tahun: String(state.tahun),
+          stockId: newStockId,
+          facilityId: fac.id,
+          tanggal: getTodayISO(),
+          jenisFasilitas: fac.namaFasilitas,
+          tarifSatuan: Number(fac.tarifSatuan) || 0,
+          penerima: penerimaStr,
+          userUid: state.currentUser.uid || '',
+          userEmail: state.currentUser.email || '',
+          jumlahKeluar: lembar,
+          jumlahTerjual: 0,
+          jumlahRetur: lembar,
+          totalNominal: 0,
+          seriKeluar: seriReturRange,
+          seriTerjual: 'Habis Diretur (0 Terjual)',
+          seriRetur: seriReturRange,
+          statusSetoran: 'Lunas Setor',
+          catatan: finalCatatan,
+          createdAt: new Date().toISOString()
+        });
+        writeLocalArray(LS_DISTRIBUSI_KEY, dists);
+        refreshLocalState();
+      }
+
+      await logActivity(
+        'RETUR_SERI_KARCIS',
+        `Petugas ${namaPetugas} mengembalikan langsung ${formatNumber(lembar)} lembar karcis ${fac.namaFasilitas} (${seriReturRange}) ke Admin.`
+      );
+
+      if (jmlInput) jmlInput.value = '';
+      if (catatanInput) catatanInput.value = '';
+      updateUserDirectReturPreview();
+
+      showToast(
+        'success',
+        'Pengembalian Karcis Berhasil',
+        `${formatNumber(lembar)} lembar karcis ${fac.namaFasilitas} (${seriReturRange}) telah masuk ke Gudang Stok Admin.`
+      );
+    }
+  } catch (err) {
+    console.error('Gagal memproses pengembalian karcis petugas:', err);
+    showToast('error', 'Gagal Mengembalikan Karcis', err.message || 'Terjadi kesalahan saat menyimpan pengembalian.');
   }
 }
 
@@ -3170,13 +3717,17 @@ function openReturModal(distId) {
   if (infoSeriKeluar) infoSeriKeluar.textContent = distObj.seriKeluar;
   if (infoJmlKeluar) infoJmlKeluar.textContent = `${formatNumber(distObj.jumlahKeluar)} Lembar`;
 
-  const alreadyReturned = (Number(distObj.jumlahRetur) || 0) > 0;
+  const prevRetur = Number(distObj.jumlahRetur) || 0;
+  const fullyReturned = prevRetur >= (Number(distObj.jumlahKeluar) || 0);
+  const isLockedForPetugas = !isAdmin && (fullyReturned || distObj.statusSetoran === 'Lunas Setor');
+
+  jmlInput.min = String(prevRetur);
   jmlInput.max = String(distObj.jumlahKeluar);
-  jmlInput.value = String(distObj.jumlahRetur || 0);
-  jmlInput.disabled = alreadyReturned;
+  jmlInput.value = String(prevRetur);
+  jmlInput.disabled = isLockedForPetugas;
 
   if (bannerProcessed) {
-    if (alreadyReturned) bannerProcessed.classList.remove('hidden');
+    if (prevRetur > 0) bannerProcessed.classList.remove('hidden');
     else bannerProcessed.classList.add('hidden');
   }
 
@@ -3192,9 +3743,9 @@ function openReturModal(distId) {
 
   if (catatanInput) catatanInput.value = distObj.catatan || '';
 
-  // Jika user biasa membuka transaksi yang sudah pernah diretur, kunci tombol submit
+  // Jika user biasa membuka transaksi yang sudah lunas atau habis diretur, kunci tombol submit
   if (submitBtn) {
-    if (!isAdmin && alreadyReturned) {
+    if (isLockedForPetugas) {
       submitBtn.classList.add('hidden');
     } else {
       submitBtn.classList.remove('hidden');
@@ -3306,20 +3857,24 @@ async function handleReturSubmit(e) {
   if (!distObj) return;
 
   const isAdmin = state.currentUser?.role === 'admin';
-  const alreadyReturned = (Number(distObj.jumlahRetur) || 0) > 0;
+  const prevRetur = Number(distObj.jumlahRetur) || 0;
   const rawRetur = parseInt(document.getElementById('retur-jumlah')?.value || '0', 10);
 
-  if (!alreadyReturned && (isNaN(rawRetur) || rawRetur < 0 || rawRetur > Number(distObj.jumlahKeluar))) {
+  if (isNaN(rawRetur) || rawRetur < prevRetur || rawRetur > Number(distObj.jumlahKeluar)) {
     showToast(
       'warning',
       'Jumlah Retur Tidak Valid',
-      `Jumlah sisa karcis harus antara 0 hingga ${formatNumber(distObj.jumlahKeluar)} lembar.`
+      `Jumlah sisa karcis harus antara ${formatNumber(prevRetur)} hingga ${formatNumber(distObj.jumlahKeluar)} lembar.`
     );
     return;
   }
 
-  const effectiveRetur = alreadyReturned ? Number(distObj.jumlahRetur) : rawRetur;
+  const effectiveRetur = rawRetur;
+  const deltaRetur = Math.max(0, effectiveRetur - prevRetur);
   const calc = calculateReturBreakdown(distObj, effectiveRetur);
+  const parsed = parseSeriRange(distObj.seriKeluar);
+  const deltaStart = parsed ? parsed.end - effectiveRetur + 1 : calc.returnStart;
+  const deltaEnd = parsed ? parsed.end - prevRetur : calc.returnEnd;
   const newStatus = isAdmin
     ? document.getElementById('retur-status')?.value || distObj.statusSetoran
     : distObj.statusSetoran;
@@ -3334,19 +3889,19 @@ async function handleReturSubmit(e) {
         const distSnap = await tx.get(distRef);
         if (!distSnap.exists()) throw new Error('Data distribusi tidak ditemukan.');
 
-        if (!alreadyReturned && calc.jumlahRetur > 0 && calc.returnStart !== null) {
+        if (deltaRetur > 0 && deltaStart !== null) {
           const parentRef = distObj.stockId ? doc(db, COL_STOCK, distObj.stockId) : null;
           const parentSnap = parentRef ? await tx.get(parentRef) : null;
 
           if (
             parentSnap &&
             parentSnap.exists() &&
-            calc.returnEnd + 1 === Number(parentSnap.data().angkaSisaMulai)
+            deltaEnd + 1 === Number(parentSnap.data().angkaSisaMulai)
           ) {
             const pData = parentSnap.data();
             tx.update(parentRef, {
-              sisaStok: Number(pData.sisaStok) + calc.jumlahRetur,
-              angkaSisaMulai: calc.returnStart
+              sisaStok: Number(pData.sisaStok) + deltaRetur,
+              angkaSisaMulai: deltaStart
             });
             returnMechanismNote = 'Rollback ke Batch Induk';
           } else {
@@ -3357,11 +3912,11 @@ async function handleReturSubmit(e) {
               jenisFasilitas: distObj.jenisFasilitas,
               tarifSatuan: Number(distObj.tarifSatuan) || 0,
               kodeHuruf: calc.kodeHuruf || 'RET',
-              angkaMulai: calc.returnStart,
-              angkaSampai: calc.returnEnd,
-              totalAwal: calc.jumlahRetur,
-              sisaStok: calc.jumlahRetur,
-              angkaSisaMulai: calc.returnStart,
+              angkaMulai: deltaStart,
+              angkaSampai: deltaEnd,
+              totalAwal: deltaRetur,
+              sisaStok: deltaRetur,
+              angkaSisaMulai: deltaStart,
               isReturBatch: true,
               createdAt: serverTimestamp()
             });
@@ -3382,11 +3937,11 @@ async function handleReturSubmit(e) {
     } else {
       // Local Mode Atomic Update
       const stocks = readLocalArray(LS_STOCK_KEY);
-      if (!alreadyReturned && calc.jumlahRetur > 0 && calc.returnStart !== null) {
+      if (deltaRetur > 0 && deltaStart !== null) {
         const pIdx = stocks.findIndex((s) => s.id === distObj.stockId);
-        if (pIdx !== -1 && calc.returnEnd + 1 === Number(stocks[pIdx].angkaSisaMulai)) {
-          stocks[pIdx].sisaStok = Number(stocks[pIdx].sisaStok) + calc.jumlahRetur;
-          stocks[pIdx].angkaSisaMulai = calc.returnStart;
+        if (pIdx !== -1 && deltaEnd + 1 === Number(stocks[pIdx].angkaSisaMulai)) {
+          stocks[pIdx].sisaStok = Number(stocks[pIdx].sisaStok) + deltaRetur;
+          stocks[pIdx].angkaSisaMulai = deltaStart;
           returnMechanismNote = 'Rollback ke Batch Induk';
         } else {
           stocks.unshift({
@@ -3396,11 +3951,11 @@ async function handleReturSubmit(e) {
             jenisFasilitas: distObj.jenisFasilitas,
             tarifSatuan: Number(distObj.tarifSatuan) || 0,
             kodeHuruf: calc.kodeHuruf || 'RET',
-            angkaMulai: calc.returnStart,
-            angkaSampai: calc.returnEnd,
-            totalAwal: calc.jumlahRetur,
-            sisaStok: calc.jumlahRetur,
-            angkaSisaMulai: calc.returnStart,
+            angkaMulai: deltaStart,
+            angkaSampai: deltaEnd,
+            totalAwal: deltaRetur,
+            sisaStok: deltaRetur,
+            angkaSisaMulai: deltaStart,
             isReturBatch: true,
             createdAt: new Date().toISOString()
           });
@@ -4929,6 +5484,33 @@ function bindEvents() {
   });
   document.getElementById('form-user-request')?.addEventListener('submit', handleUserRequestSubmit);
 
+  // Form Pengembalian Karcis Langsung dari Petugas ke Admin
+  document.getElementById('user-retur-batch')?.addEventListener('change', updateUserDirectReturPreview);
+  document.getElementById('user-retur-jumlah-input')?.addEventListener('input', updateUserDirectReturPreview);
+  document.querySelectorAll('[data-quick-retur-lembar]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const val = btn.getAttribute('data-quick-retur-lembar');
+      const inp = document.getElementById('user-retur-jumlah-input');
+      if (!inp) return;
+      if (val === 'max') {
+        const selectVal = document.getElementById('user-retur-batch')?.value || '';
+        if (selectVal.startsWith('dist:')) {
+          const distObj = state.distributions.find((d) => d.id === selectVal.slice(5));
+          if (distObj) {
+            const sisa = Math.max(0, (Number(distObj.jumlahKeluar) || 0) - (Number(distObj.jumlahRetur) || 0));
+            inp.value = String(sisa > 0 ? sisa : 1);
+          }
+        } else {
+          inp.value = '100';
+        }
+      } else if (val) {
+        inp.value = val;
+      }
+      updateUserDirectReturPreview();
+    });
+  });
+  document.getElementById('form-user-retur-direct')?.addEventListener('submit', handleUserDirectReturSubmit);
+
   // Form Pengeluaran Langsung (Oleh Admin)
   const distDateInput = document.getElementById('dist-tanggal');
   if (distDateInput && !distDateInput.value) distDateInput.value = getTodayISO();
@@ -5186,7 +5768,7 @@ async function initAuthAndBoot() {
   loadSignatories();
   bindEvents();
 
-  function bootWithLocalSession() {
+  async function bootWithSession() {
     ensureLocalDataSeeded();
     let session = null;
     try {
@@ -5198,6 +5780,64 @@ async function initAuthAndBoot() {
     if (!session || !session.email) {
       window.location.replace('./index.html');
       return false;
+    }
+
+    // Jika Firebase Cloud aktif, verifikasi sesi langsung ke Cloud Firestore & aktifkan sinkronisasi real-time
+    if (isFirebaseConfigured()) {
+      try {
+        await migrateLocalDataToCloudOnce();
+        const usersSnap = await getDocs(collection(db, COL_USERS));
+        const cloudUsers = [];
+        usersSnap.forEach((docSnap) => {
+          const d = docSnap.data() || {};
+          cloudUsers.push({ ...d, uid: d.uid || docSnap.id, id: docSnap.id });
+        });
+
+        let freshUser =
+          cloudUsers.find(
+            (u) =>
+              (u.uid && session.uid && u.uid === session.uid) ||
+              String(u.email || '').toLowerCase() === String(session.email).toLowerCase()
+          ) || null;
+
+        if (!freshUser && isAdminEmail(session.email)) {
+          freshUser = {
+            uid: session.uid || 'admin_default_uid',
+            nama: DEFAULT_ADMIN_ACCOUNT.nama,
+            nip: DEFAULT_ADMIN_ACCOUNT.nip,
+            unitTugas: DEFAULT_ADMIN_ACCOUNT.unitTugas,
+            noHp: DEFAULT_ADMIN_ACCOUNT.noHp,
+            email: DEFAULT_ADMIN_ACCOUNT.email.toLowerCase(),
+            password: DEFAULT_ADMIN_ACCOUNT.password,
+            role: 'admin',
+            status: 'approved'
+          };
+          await setDoc(
+            doc(db, COL_USERS, freshUser.uid),
+            {
+              ...freshUser,
+              createdAt: new Date().toISOString()
+            },
+            { merge: true }
+          );
+        }
+
+        if (!freshUser || (freshUser.role !== 'admin' && freshUser.status !== 'approved')) {
+          localStorage.removeItem(LS_SESSION_KEY);
+          window.location.replace('./index.html');
+          return false;
+        }
+
+        state.mode = 'cloud';
+        state.currentUser = freshUser;
+        localStorage.setItem(LS_SESSION_KEY, JSON.stringify(freshUser));
+        hideAuthGuardScreen();
+        applyRoleAccessUI();
+        attachRealtimeListeners();
+        return true;
+      } catch (cloudErr) {
+        console.warn('Cloud Firestore sedang offline, beralih ke cache lokal:', cloudErr);
+      }
     }
 
     const users = readLocalArray(LS_USERS_KEY);
@@ -5234,60 +5874,7 @@ async function initAuthAndBoot() {
     return true;
   }
 
-  if (state.mode === 'cloud' && auth) {
-    onAuthStateChanged(auth, async (fbUser) => {
-      if (!fbUser) {
-        bootWithLocalSession();
-        return;
-      }
-
-      try {
-        const userRef = doc(db, COL_USERS, fbUser.uid);
-        const snap = await getDoc(userRef);
-        let profile = snap.exists() ? snap.data() : null;
-
-        if (!profile && isAdminEmail(fbUser.email)) {
-          profile = {
-            uid: fbUser.uid,
-            nama: DEFAULT_ADMIN_ACCOUNT.nama,
-            nip: DEFAULT_ADMIN_ACCOUNT.nip,
-            unitTugas: DEFAULT_ADMIN_ACCOUNT.unitTugas,
-            noHp: DEFAULT_ADMIN_ACCOUNT.noHp,
-            email: fbUser.email.toLowerCase(),
-            role: 'admin',
-            status: 'approved'
-          };
-          await setDoc(userRef, {
-            ...profile,
-            createdAt: serverTimestamp()
-          });
-        }
-
-        if (!profile || (profile.role !== 'admin' && profile.status !== 'approved')) {
-          await signOut(auth);
-          localStorage.removeItem(LS_SESSION_KEY);
-          window.location.replace('./index.html');
-          return;
-        }
-
-        state.currentUser = {
-          uid: fbUser.uid,
-          ...profile
-        };
-
-        hideAuthGuardScreen();
-        applyRoleAccessUI();
-        attachRealtimeListeners();
-      } catch (err) {
-        console.warn('Firestore belum aktif / akses dibatasi, menggunakan sesi hybrid:', err);
-        if (!bootWithLocalSession()) {
-          window.location.replace('./index.html');
-        }
-      }
-    });
-  } else {
-    bootWithLocalSession();
-  }
+  await bootWithSession();
 }
 
 if (typeof document !== 'undefined') {

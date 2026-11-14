@@ -481,6 +481,7 @@
     import {
       doc,
       getDoc,
+      getDocs,
       setDoc,
       addDoc,
       collection,
@@ -724,15 +725,76 @@
       );
     }
 
-    function performLocalLogin(rawIdentifier, email, password) {
-      const users = getLocalUsers();
+    async function syncUsersWithCloudFirestore() {
+      const localList = getLocalUsers();
+      try {
+        const snap = await getDocs(collection(db, 'karcis_users'));
+        const cloudMap = new Map();
+        snap.forEach((docSnap) => {
+          const d = docSnap.data() || {};
+          const uid = d.uid || docSnap.id;
+          cloudMap.set(uid, { ...d, uid });
+        });
+
+        // Pastikan Akun Admin Utama tersedia di Cloud Firestore
+        const hasAdminInCloud = Array.from(cloudMap.values()).some(
+          (u) => String(u.email || '').toLowerCase() === DEFAULT_ADMIN_ACCOUNT.email.toLowerCase()
+        );
+        if (!hasAdminInCloud) {
+          const adminDoc = {
+            uid: 'admin_default_uid',
+            nama: DEFAULT_ADMIN_ACCOUNT.nama,
+            nip: DEFAULT_ADMIN_ACCOUNT.nip,
+            unitTugas: DEFAULT_ADMIN_ACCOUNT.unitTugas,
+            noHp: DEFAULT_ADMIN_ACCOUNT.noHp,
+            email: DEFAULT_ADMIN_ACCOUNT.email,
+            password: DEFAULT_ADMIN_ACCOUNT.password,
+            role: 'admin',
+            status: 'approved',
+            createdAt: new Date().toISOString()
+          };
+          await setDoc(doc(db, 'karcis_users', adminDoc.uid), adminDoc, { merge: true });
+          cloudMap.set(adminDoc.uid, adminDoc);
+        }
+
+        // Jika sebelumnya sudah ada akun baru di perangkat lokal yang belum terunggah ke Cloud, sinkronkan sekali
+        const syncedLocalFlag = localStorage.getItem('sikarcis_users_migrated_cloud_v2');
+        if (!syncedLocalFlag) {
+          for (const locUser of localList) {
+            const existsInCloud = Array.from(cloudMap.values()).some(
+              (cu) =>
+                cu.uid === locUser.uid ||
+                String(cu.email || '').toLowerCase() === String(locUser.email || '').toLowerCase() ||
+                String(cu.nama || '').trim().toLowerCase() === String(locUser.nama || '').trim().toLowerCase()
+            );
+            if (!existsInCloud && locUser.uid) {
+              await setDoc(doc(db, 'karcis_users', locUser.uid), locUser, { merge: true });
+              cloudMap.set(locUser.uid, locUser);
+            }
+          }
+          localStorage.setItem('sikarcis_users_migrated_cloud_v2', '1');
+        }
+
+        const merged = Array.from(cloudMap.values());
+        saveLocalUsers(merged);
+        return merged;
+      } catch {
+        return localList;
+      }
+    }
+
+    async function performCloudOrLocalLogin(rawIdentifier, email, password) {
+      const users = await syncUsersWithCloudFirestore();
       const inputLower = rawIdentifier.toLowerCase();
       const found = users.find((u) => {
         const matchAccount =
           String(u.email || '').toLowerCase() === inputLower ||
           String(u.email || '').toLowerCase() === email ||
           String(u.nama || '').trim().toLowerCase() === inputLower;
-        return matchAccount && u.password === password;
+        if (!matchAccount) return false;
+        if (u.password) return u.password === password;
+        if (isAdminEmail(u.email)) return password === DEFAULT_ADMIN_ACCOUNT.password;
+        return false;
       });
       if (!found) {
         throw new Error('Nama lengkap / email atau kata sandi tidak sesuai.');
@@ -752,8 +814,8 @@
       return true;
     }
 
-    function performLocalRegister(nama, unitTugas, internalEmail, password, assignedRole, assignedStatus) {
-      const users = getLocalUsers();
+    async function performCloudOrLocalRegister(nama, unitTugas, internalEmail, password, assignedRole, assignedStatus) {
+      const users = await syncUsersWithCloudFirestore();
       if (
         users.some(
           (u) =>
@@ -777,6 +839,20 @@
         status: assignedStatus,
         createdAt: new Date().toISOString()
       };
+
+      try {
+        await setDoc(doc(db, 'karcis_users', newUser.uid), newUser);
+        await addDoc(collection(db, 'karcis_logs'), {
+          tahun: String(new Date().getFullYear()),
+          waktu: new Date().toISOString(),
+          aksi: 'DAFTAR_AKUN',
+          detail: `Pendaftaran akun petugas: ${nama} (${unitTugas})`,
+          userEmail: internalEmail
+        });
+      } catch {
+        // Fallback ke local bila sedang offline
+      }
+
       users.push(newUser);
       saveLocalUsers(users);
       appendLocalLog('DAFTAR_AKUN', `Pendaftaran akun petugas: ${nama} (${unitTugas})`, internalEmail);
@@ -790,88 +866,33 @@
       showToast('Pendaftaran terkirim! Menunggu persetujuan Admin.', 'success');
     }
 
-    getLocalUsers();
-    if (!isFirebaseConfigured()) {
-      localModeBanner.classList.remove('hidden');
+    (async function checkInitialSession() {
+      getLocalUsers();
+      if (!isFirebaseConfigured()) {
+        localModeBanner.classList.remove('hidden');
+      }
       const existingSession = localStorage.getItem(LOCAL_KEYS.SESSION);
       if (existingSession) {
         try {
           const parsed = JSON.parse(existingSession);
-          const freshUser = getLocalUsers().find((u) => u.uid === parsed.uid);
-          if (freshUser && freshUser.status === 'approved') {
+          const users = await syncUsersWithCloudFirestore();
+          const freshUser = users.find(
+            (u) =>
+              u.uid === parsed.uid ||
+              String(u.email || '').toLowerCase() === String(parsed.email || '').toLowerCase()
+          );
+          if (freshUser && (freshUser.role === 'admin' || freshUser.status === 'approved')) {
+            localStorage.setItem(LOCAL_KEYS.SESSION, JSON.stringify(freshUser));
             window.location.replace('./dashboard.html');
+            return;
+          } else {
+            localStorage.removeItem(LOCAL_KEYS.SESSION);
           }
         } catch {
           localStorage.removeItem(LOCAL_KEYS.SESSION);
         }
       }
-    } else {
-      onAuthStateChanged(auth, async (user) => {
-        if (isProcessingExplicitAuth) return;
-        if (!user) {
-          const existingSession = localStorage.getItem(LOCAL_KEYS.SESSION);
-          if (existingSession) {
-            try {
-              const parsed = JSON.parse(existingSession);
-              const freshUser = getLocalUsers().find(
-                (u) => u.uid === parsed.uid || String(u.email || '').toLowerCase() === String(parsed.email || '').toLowerCase()
-              );
-              if (freshUser && (freshUser.role === 'admin' || freshUser.status === 'approved')) {
-                window.location.replace('./dashboard.html');
-              }
-            } catch {
-              localStorage.removeItem(LOCAL_KEYS.SESSION);
-            }
-          }
-          return;
-        }
-        try {
-          authCheckingBanner.classList.remove('hidden');
-          const snap = await getDoc(doc(db, 'karcis_users', user.uid));
-          if (snap.exists() && snap.data().status === 'approved') {
-            localStorage.setItem(LOCAL_KEYS.SESSION, JSON.stringify({ uid: user.uid, ...snap.data() }));
-            window.location.replace('./dashboard.html');
-          } else if (isAdminEmail(user.email)) {
-            const adminProfile = {
-              uid: user.uid,
-              nama: DEFAULT_ADMIN_ACCOUNT.nama,
-              nip: DEFAULT_ADMIN_ACCOUNT.nip,
-              unitTugas: DEFAULT_ADMIN_ACCOUNT.unitTugas,
-              noHp: DEFAULT_ADMIN_ACCOUNT.noHp,
-              email: user.email.toLowerCase(),
-              role: 'admin',
-              status: 'approved'
-            };
-            await setDoc(doc(db, 'karcis_users', user.uid), {
-              ...adminProfile,
-              createdAt: serverTimestamp()
-            }, { merge: true });
-            localStorage.setItem(LOCAL_KEYS.SESSION, JSON.stringify(adminProfile));
-            window.location.replace('./dashboard.html');
-          } else {
-            await signOut(auth);
-            authCheckingBanner.classList.add('hidden');
-          }
-        } catch (err) {
-          if (isCloudFallbackError(err) && isAdminEmail(user.email)) {
-            const adminProfile = {
-              uid: user.uid,
-              nama: DEFAULT_ADMIN_ACCOUNT.nama,
-              nip: DEFAULT_ADMIN_ACCOUNT.nip,
-              unitTugas: DEFAULT_ADMIN_ACCOUNT.unitTugas,
-              noHp: DEFAULT_ADMIN_ACCOUNT.noHp,
-              email: user.email.toLowerCase(),
-              role: 'admin',
-              status: 'approved'
-            };
-            localStorage.setItem(LOCAL_KEYS.SESSION, JSON.stringify(adminProfile));
-            window.location.replace('./dashboard.html');
-            return;
-          }
-          authCheckingBanner.classList.add('hidden');
-        }
-      });
-    }
+    })();
 
     loginForm.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -892,124 +913,10 @@
       loginBtnLabel.textContent = 'Memverifikasi...';
 
       try {
-        if (!isFirebaseConfigured()) {
-          performLocalLogin(rawIdentifier, email, password);
-          return;
-        }
-
         isProcessingExplicitAuth = true;
-        let userCredential;
-        try {
-          userCredential = await signInWithEmailAndPassword(auth, email, password);
-        } catch (authErr) {
-          if (
-            isAdminEmail(email) &&
-            password === DEFAULT_ADMIN_ACCOUNT.password &&
-            (authErr?.code === 'auth/user-not-found' || authErr?.code === 'auth/invalid-credential')
-          ) {
-            userCredential = await createUserWithEmailAndPassword(auth, email, password);
-          } else {
-            throw authErr;
-          }
-        }
-
-        const user = userCredential.user;
-        const userRef = doc(db, 'karcis_users', user.uid);
-        let profileData = null;
-
-        try {
-          const userSnap = await getDoc(userRef);
-          profileData = userSnap.exists() ? userSnap.data() : null;
-
-          if (!profileData && isAdminEmail(email)) {
-            profileData = {
-              uid: user.uid,
-              nama: DEFAULT_ADMIN_ACCOUNT.nama,
-              nip: DEFAULT_ADMIN_ACCOUNT.nip,
-              unitTugas: DEFAULT_ADMIN_ACCOUNT.unitTugas,
-              noHp: DEFAULT_ADMIN_ACCOUNT.noHp,
-              email,
-              role: 'admin',
-              status: 'approved',
-              createdAt: serverTimestamp()
-            };
-            await setDoc(userRef, profileData);
-          }
-        } catch (fsErr) {
-          if (isCloudFallbackError(fsErr)) {
-            if (isAdminEmail(email)) {
-              profileData = {
-                uid: user.uid,
-                nama: DEFAULT_ADMIN_ACCOUNT.nama,
-                nip: DEFAULT_ADMIN_ACCOUNT.nip,
-                unitTugas: DEFAULT_ADMIN_ACCOUNT.unitTugas,
-                noHp: DEFAULT_ADMIN_ACCOUNT.noHp,
-                email,
-                role: 'admin',
-                status: 'approved'
-              };
-            } else {
-              const localMatch = getLocalUsers().find(
-                (u) => String(u.email || '').toLowerCase() === email
-              );
-              if (localMatch) profileData = localMatch;
-            }
-          } else {
-            throw fsErr;
-          }
-        }
-
-        if (!profileData) {
-          await signOut(auth);
-          showAlert('Akun tidak ditemukan. Silakan daftar terlebih dahulu.', 'error');
-          return;
-        }
-
-        if (profileData.status === 'pending') {
-          await signOut(auth);
-          showAlert('Akun Anda masih menunggu persetujuan Administrator.', 'warning');
-          showToast('Menunggu persetujuan Admin.', 'warning');
-          return;
-        }
-
-        if (profileData.status === 'rejected') {
-          await signOut(auth);
-          showAlert('Akun Anda telah ditolak atau dinonaktifkan oleh Administrator.', 'error');
-          return;
-        }
-
-        localStorage.setItem(
-          LOCAL_KEYS.SESSION,
-          JSON.stringify({
-            uid: user.uid,
-            nama: profileData.nama || DEFAULT_ADMIN_ACCOUNT.nama,
-            nip: profileData.nip || '',
-            unitTugas: profileData.unitTugas || '',
-            noHp: profileData.noHp || '',
-            email: profileData.email || email,
-            role: profileData.role || 'user',
-            status: profileData.status || 'approved'
-          })
-        );
-        showToast(`Selamat datang, ${profileData.nama || user.email}.`, 'success');
-        window.location.replace('./dashboard.html');
+        await performCloudOrLocalLogin(rawIdentifier, email, password);
       } catch (err) {
-        if (isCloudFallbackError(err)) {
-          try {
-            performLocalLogin(rawIdentifier, email, password);
-            return;
-          } catch (localErr) {
-            const fallbackMsg = localErr?.message || 'Nama lengkap / email atau kata sandi salah.';
-            showAlert(fallbackMsg, 'error');
-            showToast(fallbackMsg, 'error');
-            return;
-          }
-        }
-        const msg = err?.code
-          ? (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found'
-              ? 'Nama lengkap / email atau kata sandi salah.'
-              : `Gagal masuk (${err.code}).`)
-          : (err?.message || 'Gagal masuk ke sistem.');
+        const msg = err?.message || 'Nama lengkap / email atau kata sandi salah.';
         showAlert(msg, 'error');
         showToast(msg, 'error');
       } finally {
@@ -1060,60 +967,10 @@
       regBtnLabel.textContent = 'Mendaftarkan...';
 
       try {
-        const assignedRole = 'user';
-        const assignedStatus = 'pending';
-
-        if (!isFirebaseConfigured()) {
-          performLocalRegister(nama, unitTugas, internalEmail, password, assignedRole, assignedStatus);
-          return;
-        }
-
         isProcessingExplicitAuth = true;
-        const cred = await createUserWithEmailAndPassword(auth, internalEmail, password);
-        const uid = cred.user.uid;
-
-        await setDoc(doc(db, 'karcis_users', uid), {
-          uid,
-          nama,
-          unitTugas,
-          email: internalEmail,
-          loginType: 'nama',
-          role: assignedRole,
-          status: assignedStatus,
-          createdAt: serverTimestamp()
-        });
-
-        await addDoc(collection(db, 'karcis_logs'), {
-          tahun: String(new Date().getFullYear()),
-          waktu: serverTimestamp(),
-          aksi: 'DAFTAR_AKUN',
-          detail: `Pendaftaran akun petugas: ${nama} (${unitTugas})`,
-          userEmail: internalEmail
-        });
-
-        await signOut(auth);
-        registerForm.reset();
-        switchTab('login');
-        showAlert(
-          `Pendaftaran berhasil dikirim. Gunakan nama "${nama}" untuk masuk setelah disetujui Admin.`,
-          'success'
-        );
-        showToast('Pendaftaran terkirim!', 'success');
+        await performCloudOrLocalRegister(nama, unitTugas, internalEmail, password, 'user', 'pending');
       } catch (err) {
-        if (isCloudFallbackError(err)) {
-          try {
-            performLocalRegister(nama, unitTugas, internalEmail, password, 'user', 'pending');
-            return;
-          } catch (localErr) {
-            const lMsg = localErr?.message || 'Gagal mengirim pendaftaran.';
-            showAlert(lMsg, 'error');
-            showToast(lMsg, 'error');
-            return;
-          }
-        }
-        const msg = err?.code === 'auth/email-already-in-use'
-          ? 'Nama lengkap tersebut sudah terdaftar. Tambahkan pembeda pada nama (misal: Budi Santoso 2).'
-          : (err?.message || 'Gagal mengirim pendaftaran.');
+        const msg = err?.message || 'Gagal mengirim pendaftaran.';
         showAlert(msg, 'error');
         showToast(msg, 'error');
       } finally {
