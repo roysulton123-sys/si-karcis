@@ -484,6 +484,7 @@
       getDocs,
       setDoc,
       addDoc,
+      onSnapshot,
       collection,
       serverTimestamp
     } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
@@ -757,21 +758,24 @@
           cloudMap.set(adminDoc.uid, adminDoc);
         }
 
-        // Jika sebelumnya sudah ada akun baru di perangkat lokal yang belum terunggah ke Cloud, sinkronkan sekali
+        // Jika Cloud benar-benar kosong saat migrasi perdana, unggah akun lokal non-dummy
         const syncedLocalFlag = localStorage.getItem('sikarcis_users_migrated_cloud_v2');
-        if (!syncedLocalFlag) {
+        if (!syncedLocalFlag && snap.empty) {
           for (const locUser of localList) {
+            if (!locUser.uid || locUser.uid === 'local-admin-001') continue;
             const existsInCloud = Array.from(cloudMap.values()).some(
               (cu) =>
                 cu.uid === locUser.uid ||
                 String(cu.email || '').toLowerCase() === String(locUser.email || '').toLowerCase() ||
                 String(cu.nama || '').trim().toLowerCase() === String(locUser.nama || '').trim().toLowerCase()
             );
-            if (!existsInCloud && locUser.uid) {
+            if (!existsInCloud) {
               await setDoc(doc(db, 'karcis_users', locUser.uid), locUser, { merge: true });
               cloudMap.set(locUser.uid, locUser);
             }
           }
+        }
+        if (!syncedLocalFlag) {
           localStorage.setItem('sikarcis_users_migrated_cloud_v2', '1');
         }
 
@@ -781,6 +785,38 @@
       } catch {
         return localList;
       }
+    }
+
+    function startLoginPageUsersLiveSync() {
+      if (!isFirebaseConfigured()) return;
+      try {
+        onSnapshot(
+          collection(db, 'karcis_users'),
+          (snapshot) => {
+            const list = [];
+            snapshot.forEach((docSnap) => {
+              const d = docSnap.data() || {};
+              list.push({ ...d, uid: d.uid || docSnap.id });
+            });
+            if (list.length > 0) {
+              saveLocalUsers(list);
+            }
+          },
+          () => {
+            // Abaikan error sementara listener login; akan disinkronkan saat login/fokus
+          }
+        );
+      } catch {
+        // Fallback aman ke sync manual
+      }
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          syncUsersWithCloudFirestore();
+        }
+      });
+      window.addEventListener('online', () => {
+        syncUsersWithCloudFirestore();
+      });
     }
 
     async function performCloudOrLocalLogin(rawIdentifier, email, password) {
@@ -849,6 +885,13 @@
           detail: `Pendaftaran akun petugas: ${nama} (${unitTugas})`,
           userEmail: internalEmail
         });
+        if (typeof BroadcastChannel !== 'undefined') {
+          try {
+            const ch = new BroadcastChannel('sikarcis_sync_v1');
+            ch.postMessage({ type: 'data-updated', scope: 'users', ts: Date.now() });
+            ch.close();
+          } catch {}
+        }
       } catch {
         // Fallback ke local bila sedang offline
       }
@@ -870,6 +913,8 @@
       getLocalUsers();
       if (!isFirebaseConfigured()) {
         localModeBanner.classList.remove('hidden');
+      } else {
+        startLoginPageUsersLiveSync();
       }
       const existingSession = localStorage.getItem(LOCAL_KEYS.SESSION);
       if (existingSession) {

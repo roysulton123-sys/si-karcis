@@ -5,7 +5,7 @@
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
 import { getAuth } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
-import { getFirestore } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+import { getFirestore, initializeFirestore } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDUyhlJSht__37O9zYQJHCHTpUMRhygwok",
@@ -73,6 +73,15 @@ export function isAdminEmail(email) {
 const app = initializeApp(firebaseConfig);
 const syncApp = initializeApp(cloudSyncFirebaseConfig, "sikarcis-cloud-sync");
 const auth = getAuth(app);
-const db = getFirestore(syncApp);
+
+let db;
+try {
+  db = initializeFirestore(syncApp, {
+    experimentalAutoDetectLongPolling: true,
+    useFetchStreams: false
+  });
+} catch {
+  db = getFirestore(syncApp);
+}
 
 export { app, syncApp, auth, db, firebaseConfig, cloudSyncFirebaseConfig };

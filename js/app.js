@@ -120,6 +120,9 @@ const state = {
     requests: null
   },
 
+  // Selection state untuk hapus riwayat aktivitas via checkbox
+  selectedLogIds: new Set(),
+
   // Filter & Pagination States
   filters: {
     adminReq: { status: 'ALL' },
@@ -135,6 +138,16 @@ const state = {
   charts: {
     monthlyTrend: null,
     facilityComposition: null
+  },
+
+  // Sinkronisasi otomatis lintas perangkat & tab tanpa reload
+  sync: {
+    timer: null,
+    retryTimer: null,
+    inFlight: false,
+    fingerprints: {},
+    channel: null,
+    hooksBound: false
   },
 
   seedingInProgress: false
@@ -448,6 +461,7 @@ async function logActivity(aksi, detail, customTahun = null) {
     writeLocalArray(LS_LOGS_KEY, logs.slice(0, 300));
     refreshLocalState();
   }
+  notifyCrossTabSync('logs');
 }
 
 /**
@@ -593,22 +607,38 @@ async function migrateLocalDataToCloudOnce() {
   if (localStorage.getItem('sikarcis_cloud_migrated_v2') === '1') return;
 
   try {
+    const [cloudFacsSnap, cloudUsersSnap] = await Promise.all([
+      getDocs(collection(db, COL_FACILITIES)),
+      getDocs(collection(db, COL_USERS))
+    ]);
+    const cloudHasData = !cloudFacsSnap.empty || !cloudUsersSnap.empty;
+
     const batch = writeBatch(db);
     let writeCount = 0;
 
-    // 1. Pastikan Admin Utama ada di COL_USERS + unggah user lokal
+    // 1. Unggah user lokal non-dummy jika Cloud masih kosong atau user belum ada
     const localUsers = readLocalArray(LS_USERS_KEY);
+    const existingCloudUserIds = new Set(cloudUsersSnap.docs.map((d) => d.id));
     for (const u of localUsers) {
       const uid = u.uid || u.id;
-      if (!uid) continue;
-      batch.set(doc(db, COL_USERS, uid), { ...u, uid }, { merge: true });
-      writeCount++;
+      if (!uid || uid === 'local-admin-001') continue;
+      if (cloudHasData && existingCloudUserIds.has(uid)) continue;
+      if (!cloudHasData || String(uid).startsWith('user_')) {
+        batch.set(doc(db, COL_USERS, uid), { ...u, uid }, { merge: true });
+        writeCount++;
+      }
     }
+
+    // Lewati data dummy seed bila Cloud sudah memiliki data aktif
+    const isSeedId = (id) =>
+      String(id || '').startsWith('fac_seed_') ||
+      String(id || '').startsWith('stk_seed_') ||
+      String(id || '').startsWith('dist_seed_');
 
     // 2. Unggah fasilitas kustom lokal jika ada
     const localFacs = readLocalArray(LS_FACILITIES_KEY);
     for (const f of localFacs) {
-      if (!f.id) continue;
+      if (!f.id || (cloudHasData && isSeedId(f.id))) continue;
       const { id, ...payload } = f;
       batch.set(doc(db, COL_FACILITIES, id), payload, { merge: true });
       writeCount++;
@@ -617,7 +647,7 @@ async function migrateLocalDataToCloudOnce() {
     // 3. Unggah stok lokal jika ada
     const localStocks = readLocalArray(LS_STOCK_KEY);
     for (const s of localStocks) {
-      if (!s.id) continue;
+      if (!s.id || (cloudHasData && isSeedId(s.id))) continue;
       const { id, ...payload } = s;
       batch.set(doc(db, COL_STOCK, id), payload, { merge: true });
       writeCount++;
@@ -626,7 +656,7 @@ async function migrateLocalDataToCloudOnce() {
     // 4. Unggah distribusi lokal jika ada
     const localDists = readLocalArray(LS_DISTRIBUSI_KEY);
     for (const d of localDists) {
-      if (!d.id) continue;
+      if (!d.id || (cloudHasData && isSeedId(d.id))) continue;
       const { id, ...payload } = d;
       batch.set(doc(db, COL_DISTRIBUSI, id), payload, { merge: true });
       writeCount++;
@@ -815,6 +845,294 @@ function refreshLocalState() {
   renderAllViews();
 }
 
+function setCloudStatusBadge(variant, label) {
+  if (typeof document === 'undefined') return;
+  const statusDot = document.getElementById('firestore-status-dot');
+  const statusText = document.getElementById('firestore-status-text');
+  const dotClassMap = {
+    connected: 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse',
+    syncing: 'w-2 h-2 rounded-full bg-amber-400 animate-pulse',
+    local: 'w-2 h-2 rounded-full bg-sky-400'
+  };
+  if (statusDot) statusDot.className = dotClassMap[variant] || dotClassMap.connected;
+  if (statusText) statusText.textContent = label;
+}
+
+function getSyncBroadcastChannel() {
+  if (typeof BroadcastChannel === 'undefined') return null;
+  if (!state.sync.channel) {
+    try {
+      state.sync.channel = new BroadcastChannel('sikarcis_sync_v1');
+      state.sync.channel.onmessage = (event) => {
+        const msg = event?.data;
+        if (!msg || msg.type !== 'data-updated') return;
+        if (state.mode === 'cloud') {
+          syncCloudDataSilently(true);
+        } else {
+          refreshLocalState();
+        }
+      };
+    } catch {
+      return null;
+    }
+  }
+  return state.sync.channel;
+}
+
+function notifyCrossTabSync(scope = 'all') {
+  try {
+    const ch = getSyncBroadcastChannel();
+    if (ch) {
+      ch.postMessage({ type: 'data-updated', scope, tahun: state.tahun, ts: Date.now() });
+    }
+  } catch {
+    // Abaikan jika BroadcastChannel tidak tersedia
+  }
+}
+
+function normalizeFingerprintValue(val) {
+  if (val && typeof val.toMillis === 'function') return val.toMillis();
+  if (val && typeof val === 'object' && typeof val.seconds === 'number') {
+    return val.seconds * 1000 + Math.floor((val.nanoseconds || 0) / 1e6);
+  }
+  if (Array.isArray(val)) return val.map(normalizeFingerprintValue);
+  if (val && typeof val === 'object') {
+    const out = {};
+    Object.keys(val)
+      .sort()
+      .forEach((k) => {
+        out[k] = normalizeFingerprintValue(val[k]);
+      });
+    return out;
+  }
+  return val ?? null;
+}
+
+function buildCollectionFingerprint(items) {
+  return JSON.stringify((items || []).map(normalizeFingerprintValue));
+}
+
+function pruneSelectedLogIds() {
+  if (!(state.selectedLogIds instanceof Set)) {
+    state.selectedLogIds = new Set();
+    return;
+  }
+  const validIds = new Set(state.logs.map((l) => l.id));
+  Array.from(state.selectedLogIds).forEach((id) => {
+    if (!validIds.has(id)) state.selectedLogIds.delete(id);
+  });
+}
+
+function stopAutoSyncLoop() {
+  if (state.sync.timer) {
+    clearInterval(state.sync.timer);
+    state.sync.timer = null;
+  }
+  if (state.sync.retryTimer) {
+    clearTimeout(state.sync.retryTimer);
+    state.sync.retryTimer = null;
+  }
+}
+
+function scheduleCloudReconnect() {
+  if (!isFirebaseConfigured() || state.sync.retryTimer) return;
+  setCloudStatusBadge('syncing', 'Menghubungkan Ulang...');
+  state.sync.retryTimer = setTimeout(() => {
+    state.sync.retryTimer = null;
+    if (isFirebaseConfigured()) {
+      state.mode = 'cloud';
+      attachRealtimeListeners();
+      syncCloudDataSilently(true);
+    }
+  }, 4000);
+}
+
+function applySyncedUsersState(items) {
+  state.users = items;
+  writeLocalArray(LS_USERS_KEY, items);
+  state.loaded.users = true;
+  if (state.currentUser && items.length > 0) {
+    const me = items.find(
+      (u) =>
+        (u.uid && state.currentUser.uid && u.uid === state.currentUser.uid) ||
+        String(u.email || '').toLowerCase() === String(state.currentUser.email || '').toLowerCase()
+    );
+    if (state.currentUser.role !== 'admin' && (!me || me.status !== 'approved')) {
+      localStorage.removeItem(LS_SESSION_KEY);
+      window.location.replace('./index.html');
+      return false;
+    }
+    if (me) {
+      state.currentUser = { ...state.currentUser, ...me, uid: me.uid || state.currentUser.uid };
+      try {
+        localStorage.setItem(LS_SESSION_KEY, JSON.stringify(state.currentUser));
+      } catch {
+        // Abaikan quota storage error
+      }
+      if (typeof applyUserProfileHeaderUI === 'function') {
+        applyUserProfileHeaderUI();
+      }
+    }
+  }
+  return true;
+}
+
+async function syncCloudDataSilently(force = false) {
+  if (state.mode !== 'cloud' || !isFirebaseConfigured()) return;
+  if (state.sync.inFlight) return;
+  if (!force && typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+
+  state.sync.inFlight = true;
+  const tahun = String(state.tahun);
+
+  try {
+    const [facSnap, stockSnap, distSnap, logsSnap, usersSnap, reqSnap] = await Promise.all([
+      getDocs(collection(db, COL_FACILITIES)),
+      getDocs(query(collection(db, COL_STOCK), where('tahun', '==', tahun))),
+      getDocs(query(collection(db, COL_DISTRIBUSI), where('tahun', '==', tahun))),
+      getDocs(query(collection(db, COL_LOGS), where('tahun', '==', tahun))),
+      getDocs(collection(db, COL_USERS)),
+      getDocs(query(collection(db, COL_REQUESTS), where('tahun', '==', tahun)))
+    ]);
+
+    // Pastikan state.tahun belum berubah di tengah fetch
+    if (String(state.tahun) !== tahun) return;
+
+    const facItems = facSnap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => String(a.namaFasilitas || '').localeCompare(String(b.namaFasilitas || ''), 'id'));
+    const stockItems = stockSnap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => getTimestampMillis(b.createdAt) - getTimestampMillis(a.createdAt));
+    const distItems = distSnap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => {
+        const dCmp = String(b.tanggal || '').localeCompare(String(a.tanggal || ''));
+        return dCmp !== 0 ? dCmp : getTimestampMillis(b.createdAt) - getTimestampMillis(a.createdAt);
+      });
+    const logItems = logsSnap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => getTimestampMillis(b.waktu) - getTimestampMillis(a.waktu));
+    const userItems = usersSnap.docs
+      .map((d) => ({ id: d.id, uid: d.id, ...d.data() }))
+      .sort((a, b) => getTimestampMillis(b.createdAt) - getTimestampMillis(a.createdAt));
+    const reqItems = reqSnap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => getTimestampMillis(b.createdAt) - getTimestampMillis(a.createdAt));
+
+    let viewNeedsRefresh = false;
+
+    const fpFac = buildCollectionFingerprint(facItems);
+    if (fpFac !== state.sync.fingerprints.facilities) {
+      state.sync.fingerprints.facilities = fpFac;
+      state.facilities = facItems;
+      writeLocalArray(LS_FACILITIES_KEY, facItems);
+      state.loaded.facilities = true;
+      populateFacilitySelects();
+      viewNeedsRefresh = true;
+    }
+
+    const fpStock = buildCollectionFingerprint(stockItems);
+    if (fpStock !== state.sync.fingerprints.stocks) {
+      state.sync.fingerprints.stocks = fpStock;
+      state.stocks = stockItems;
+      writeLocalArray(LS_STOCK_KEY, stockItems);
+      state.loaded.stocks = true;
+      populateDistStockSelect();
+      viewNeedsRefresh = true;
+    }
+
+    const fpDist = buildCollectionFingerprint(distItems);
+    if (fpDist !== state.sync.fingerprints.distributions) {
+      state.sync.fingerprints.distributions = fpDist;
+      state.distributions = distItems;
+      writeLocalArray(LS_DISTRIBUSI_KEY, distItems);
+      state.loaded.distributions = true;
+      viewNeedsRefresh = true;
+    }
+
+    const fpLogs = buildCollectionFingerprint(logItems);
+    if (fpLogs !== state.sync.fingerprints.logs) {
+      state.sync.fingerprints.logs = fpLogs;
+      state.logs = logItems;
+      writeLocalArray(LS_LOGS_KEY, logItems);
+      state.loaded.logs = true;
+      pruneSelectedLogIds();
+      renderAuditLogsUI();
+    }
+
+    const fpUsers = buildCollectionFingerprint(userItems);
+    if (fpUsers !== state.sync.fingerprints.users) {
+      state.sync.fingerprints.users = fpUsers;
+      const keepSession = applySyncedUsersState(userItems);
+      if (!keepSession) return;
+      populatePetugasDatalist();
+      renderUsersView();
+      renderDashboardAlerts();
+    }
+
+    const fpReq = buildCollectionFingerprint(reqItems);
+    if (fpReq !== state.sync.fingerprints.requests) {
+      state.sync.fingerprints.requests = fpReq;
+      state.requests = reqItems;
+      writeLocalArray(LS_REQUESTS_KEY, reqItems);
+      state.loaded.requests = true;
+      renderAdminRequestsQueue();
+      renderUserPortalView();
+      renderDashboardAlerts();
+    }
+
+    checkInitialSkeletonDismiss();
+    if (viewNeedsRefresh) {
+      renderAllViews();
+    }
+    setCloudStatusBadge('connected', 'Sinkronisasi Otomatis Aktif');
+  } catch (err) {
+    console.warn('Sinkronisasi latar belakang tertunda:', err?.message || err);
+    setCloudStatusBadge('syncing', 'Menghubungkan Ulang...');
+  } finally {
+    state.sync.inFlight = false;
+  }
+}
+
+function startAutoSyncLoop() {
+  stopAutoSyncLoop();
+  getSyncBroadcastChannel();
+
+  if (typeof window !== 'undefined' && !state.sync.hooksBound) {
+    state.sync.hooksBound = true;
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        if (state.mode === 'cloud') {
+          syncCloudDataSilently(true);
+        } else if (isFirebaseConfigured()) {
+          scheduleCloudReconnect();
+        }
+      }
+    });
+    window.addEventListener('focus', () => {
+      if (state.mode === 'cloud') {
+        syncCloudDataSilently(true);
+      }
+    });
+    window.addEventListener('online', () => {
+      if (isFirebaseConfigured()) {
+        if (state.mode !== 'cloud') {
+          state.mode = 'cloud';
+          attachRealtimeListeners();
+        }
+        syncCloudDataSilently(true);
+      }
+    });
+  }
+
+  if (state.mode === 'cloud') {
+    state.sync.timer = setInterval(() => {
+      syncCloudDataSilently(false);
+    }, 5000);
+  }
+}
+
 function detachAllListeners() {
   Object.keys(state.unsubscribers).forEach((key) => {
     if (typeof state.unsubscribers[key] === 'function') {
@@ -822,37 +1140,37 @@ function detachAllListeners() {
       state.unsubscribers[key] = null;
     }
   });
+  stopAutoSyncLoop();
 }
 
 function switchToLocalFallbackMode(reason = '') {
+  if (isFirebaseConfigured()) {
+    console.warn('Koneksi Cloud terganggu sementara, menjadwalkan sinkronisasi ulang:', reason);
+    scheduleCloudReconnect();
+    return;
+  }
   if (state.mode === 'local') return;
-  console.warn('Beralih otomatis ke penyimpanan lokal (Hybrid Fallback):', reason);
+  console.warn('Beralih otomatis ke penyimpanan lokal:', reason);
   detachAllListeners();
   state.mode = 'local';
-  const statusDot = document.getElementById('firestore-status-dot');
-  const statusText = document.getElementById('firestore-status-text');
-  if (statusDot) statusDot.className = 'w-2 h-2 rounded-full bg-amber-400 animate-pulse';
-  if (statusText) statusText.textContent = 'Firebase Hybrid (Lokal)';
+  setCloudStatusBadge('local', 'Mode Lokal Aktif');
   refreshLocalState();
 }
 
 function attachRealtimeListeners() {
   detachAllListeners();
 
-  const statusDot = document.getElementById('firestore-status-dot');
-  const statusText = document.getElementById('firestore-status-text');
-
   if (state.mode === 'local') {
-    if (statusDot) statusDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
-    if (statusText) statusText.textContent = 'Mode Lokal Aktif';
+    setCloudStatusBadge('local', 'Mode Lokal Aktif');
     refreshLocalState();
+    startAutoSyncLoop();
     return;
   }
 
-  if (statusDot) statusDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
-  if (statusText) statusText.textContent = 'Firebase Cloud Aktif';
+  setCloudStatusBadge('connected', 'Sinkronisasi Otomatis Aktif');
+  state.sync.fingerprints = {};
 
-  // CLOUD FIRESTORE LISTENERS (Independen tanpa race condition)
+  // CLOUD FIRESTORE LISTENERS (Real-time + Auto-sync fallback)
   const tahun = String(state.tahun);
 
   // 1. Listener karcis_facilities
@@ -870,9 +1188,11 @@ function attachRealtimeListeners() {
       items.sort((a, b) =>
         String(a.namaFasilitas || '').localeCompare(String(b.namaFasilitas || ''), 'id')
       );
+      state.sync.fingerprints.facilities = buildCollectionFingerprint(items);
       state.facilities = items;
       writeLocalArray(LS_FACILITIES_KEY, items);
       state.loaded.facilities = true;
+      setCloudStatusBadge('connected', 'Sinkronisasi Otomatis Aktif');
       checkInitialSkeletonDismiss();
       populateFacilitySelects();
       renderAllViews();
@@ -893,10 +1213,13 @@ function attachRealtimeListeners() {
         items.push({ id: docSnap.id, ...docSnap.data() });
       });
       items.sort((a, b) => getTimestampMillis(b.createdAt) - getTimestampMillis(a.createdAt));
+      state.sync.fingerprints.stocks = buildCollectionFingerprint(items);
       state.stocks = items;
       writeLocalArray(LS_STOCK_KEY, items);
       state.loaded.stocks = true;
+      setCloudStatusBadge('connected', 'Sinkronisasi Otomatis Aktif');
       checkInitialSkeletonDismiss();
+      populateDistStockSelect();
       renderAllViews();
     },
     (err) => {
@@ -919,9 +1242,11 @@ function attachRealtimeListeners() {
         if (dCmp !== 0) return dCmp;
         return getTimestampMillis(b.createdAt) - getTimestampMillis(a.createdAt);
       });
+      state.sync.fingerprints.distributions = buildCollectionFingerprint(items);
       state.distributions = items;
       writeLocalArray(LS_DISTRIBUSI_KEY, items);
       state.loaded.distributions = true;
+      setCloudStatusBadge('connected', 'Sinkronisasi Otomatis Aktif');
       checkInitialSkeletonDismiss();
       renderAllViews();
     },
@@ -941,14 +1266,17 @@ function attachRealtimeListeners() {
         items.push({ id: docSnap.id, ...docSnap.data() });
       });
       items.sort((a, b) => getTimestampMillis(b.waktu) - getTimestampMillis(a.waktu));
+      state.sync.fingerprints.logs = buildCollectionFingerprint(items);
       state.logs = items;
       writeLocalArray(LS_LOGS_KEY, items);
       state.loaded.logs = true;
+      pruneSelectedLogIds();
       checkInitialSkeletonDismiss();
       renderAuditLogsUI();
     },
     (err) => {
       console.error('Error listener karcis_logs:', err);
+      scheduleCloudReconnect();
     }
   );
 
@@ -961,27 +1289,16 @@ function attachRealtimeListeners() {
         items.push({ id: docSnap.id, uid: docSnap.id, ...docSnap.data() });
       });
       items.sort((a, b) => getTimestampMillis(b.createdAt) - getTimestampMillis(a.createdAt));
-      state.users = items;
-      writeLocalArray(LS_USERS_KEY, items);
-      state.loaded.users = true;
-      if (state.currentUser && state.currentUser.role !== 'admin' && items.length > 0) {
-        const me = items.find(
-          (u) =>
-            u.uid === state.currentUser.uid ||
-            String(u.email || '').toLowerCase() === String(state.currentUser.email || '').toLowerCase()
-        );
-        if (!me || me.status !== 'approved') {
-          localStorage.removeItem(LS_SESSION_KEY);
-          window.location.replace('./index.html');
-          return;
-        }
-      }
+      state.sync.fingerprints.users = buildCollectionFingerprint(items);
+      if (!applySyncedUsersState(items)) return;
       checkInitialSkeletonDismiss();
+      populatePetugasDatalist();
       renderUsersView();
       renderDashboardAlerts();
     },
     (err) => {
       console.error('Error listener karcis_users:', err);
+      scheduleCloudReconnect();
     }
   );
 
@@ -995,6 +1312,7 @@ function attachRealtimeListeners() {
         items.push({ id: docSnap.id, ...docSnap.data() });
       });
       items.sort((a, b) => getTimestampMillis(b.createdAt) - getTimestampMillis(a.createdAt));
+      state.sync.fingerprints.requests = buildCollectionFingerprint(items);
       state.requests = items;
       writeLocalArray(LS_REQUESTS_KEY, items);
       state.loaded.requests = true;
@@ -1005,8 +1323,11 @@ function attachRealtimeListeners() {
     },
     (err) => {
       console.error('Error listener karcis_requests:', err);
+      scheduleCloudReconnect();
     }
   );
+
+  startAutoSyncLoop();
 }
 
 function checkInitialSkeletonDismiss() {
@@ -1027,17 +1348,12 @@ function hideAuthGuardScreen() {
   if (guard) guard.classList.add('hidden');
 }
 
-function applyRoleAccessUI() {
+function applyUserProfileHeaderUI() {
   const user = state.currentUser;
   if (!user) return;
 
   const isAdmin = user.role === 'admin';
   const roleBadge = document.getElementById('sidebar-role-badge');
-  const adminNav = document.getElementById('admin-nav-group');
-  const userNav = document.getElementById('user-nav-group');
-  const adminAudit = document.getElementById('admin-audit-group');
-  const topbarLowstockBtn = document.getElementById('btn-topbar-lowstock');
-
   const avatarEl = document.getElementById('user-avatar-initial');
   const nameEl = document.getElementById('user-name-display');
   const roleEl = document.getElementById('user-role-display');
@@ -1067,6 +1383,26 @@ function applyRoleAccessUI() {
       : 'text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
   }
 
+  if (!isAdmin) {
+    const welcomeName = document.getElementById('portal-user-welcome-name');
+    const unitLabel = document.getElementById('portal-user-unit-label');
+    if (welcomeName) welcomeName.textContent = user.nama || user.email;
+    if (unitLabel) unitLabel.textContent = user.unitTugas || 'Petugas Retribusi Lapangan';
+  }
+}
+
+function applyRoleAccessUI() {
+  const user = state.currentUser;
+  if (!user) return;
+
+  applyUserProfileHeaderUI();
+
+  const isAdmin = user.role === 'admin';
+  const adminNav = document.getElementById('admin-nav-group');
+  const userNav = document.getElementById('user-nav-group');
+  const adminAudit = document.getElementById('admin-audit-group');
+  const topbarLowstockBtn = document.getElementById('btn-topbar-lowstock');
+
   if (isAdmin) {
     if (adminNav) adminNav.classList.remove('hidden');
     if (adminAudit) adminAudit.classList.remove('hidden');
@@ -1079,12 +1415,6 @@ function applyRoleAccessUI() {
     if (adminAudit) adminAudit.classList.add('hidden');
     if (topbarLowstockBtn) topbarLowstockBtn.classList.add('hidden');
     if (userNav) userNav.classList.remove('hidden');
-
-    const welcomeName = document.getElementById('portal-user-welcome-name');
-    const unitLabel = document.getElementById('portal-user-unit-label');
-    if (welcomeName) welcomeName.textContent = user.nama || user.email;
-    if (unitLabel) unitLabel.textContent = user.unitTugas || 'Petugas Retribusi Lapangan';
-
     switchView('portal-user');
   }
 }
@@ -1200,10 +1530,56 @@ function normalizeFacilityName(name) {
     .toLowerCase();
 }
 
+function normalizeKodeSeri(kode) {
+  return String(kode || '').trim().toUpperCase();
+}
+
 function findFacilityByName(name) {
   const target = normalizeFacilityName(name);
   if (!target) return null;
   return state.facilities.find((f) => normalizeFacilityName(f.namaFasilitas) === target) || null;
+}
+
+function findFacilityByNameAndKode(name, kodeHuruf) {
+  const targetName = normalizeFacilityName(name);
+  const targetKode = normalizeKodeSeri(kodeHuruf);
+  if (!targetName) return null;
+  if (!targetKode) return findFacilityByName(name);
+  return (
+    state.facilities.find(
+      (f) =>
+        normalizeFacilityName(f.namaFasilitas) === targetName &&
+        normalizeKodeSeri(f.kodeDefault) === targetKode
+    ) || null
+  );
+}
+
+function hasDuplicateFacilityName(name) {
+  const target = normalizeFacilityName(name);
+  if (!target) return false;
+  let count = 0;
+  for (const f of state.facilities) {
+    if (normalizeFacilityName(f.namaFasilitas) === target) {
+      count++;
+      if (count > 1) return true;
+    }
+  }
+  return false;
+}
+
+function findExistingStockGroupByNameAndKode(name, kodeHuruf) {
+  const targetName = normalizeFacilityName(name);
+  const targetKode = normalizeKodeSeri(kodeHuruf);
+  if (!targetName || !targetKode) return null;
+  const facById = new Map(state.facilities.map((f) => [f.id, f]));
+  return (
+    state.stocks.find((s) => {
+      const linkedFac = facById.get(s.facilityId);
+      const sName = normalizeFacilityName(linkedFac?.namaFasilitas || s.jenisFasilitas);
+      const sKode = normalizeKodeSeri(s.kodeHuruf || linkedFac?.kodeDefault);
+      return sName === targetName && sKode === targetKode;
+    }) || null
+  );
 }
 
 function suggestKodeFromFacilityName(name) {
@@ -1225,6 +1601,10 @@ function suggestKodeFromFacilityName(name) {
 function populateFacilitySelects() {
   const activeFacilities = state.facilities.filter((f) => f.isActive !== false);
   const allFacilities = state.facilities;
+  const formatFacilityOptionName = (fac) =>
+    hasDuplicateFacilityName(fac.namaFasilitas) && fac.kodeDefault
+      ? `${fac.namaFasilitas} [${fac.kodeDefault}]`
+      : fac.namaFasilitas;
 
   const activeSelectIds = ['dist-facility', 'req-facility'];
   activeSelectIds.forEach((selectId) => {
@@ -1235,7 +1615,7 @@ function populateFacilitySelects() {
     activeFacilities.forEach((fac) => {
       const opt = document.createElement('option');
       opt.value = fac.id;
-      opt.textContent = `${fac.namaFasilitas} (${formatRupiah(fac.tarifSatuan)} / lbr)`;
+      opt.textContent = `${formatFacilityOptionName(fac)} (${formatRupiah(fac.tarifSatuan)} / lbr)`;
       sel.appendChild(opt);
     });
     if (prevVal && activeFacilities.some((f) => f.id === prevVal)) {
@@ -1247,19 +1627,34 @@ function populateFacilitySelects() {
   const stokDatalist = document.getElementById('datalist-stok-facilities');
   if (stokDatalist) {
     stokDatalist.innerHTML = '';
-    const seenNames = new Set();
+    const byName = new Map();
     allFacilities
       .slice()
       .sort((a, b) => String(a.namaFasilitas || '').localeCompare(String(b.namaFasilitas || ''), 'id'))
       .forEach((fac) => {
         const key = normalizeFacilityName(fac.namaFasilitas);
-        if (!key || seenNames.has(key)) return;
-        seenNames.add(key);
-        const opt = document.createElement('option');
-        opt.value = fac.namaFasilitas;
-        opt.textContent = `${formatRupiah(fac.tarifSatuan)} / lbr • Kode: ${fac.kodeDefault}`;
-        stokDatalist.appendChild(opt);
+        if (!key) return;
+        if (!byName.has(key)) {
+          byName.set(key, {
+            namaFasilitas: fac.namaFasilitas,
+            tarifs: new Set([formatRupiah(fac.tarifSatuan) + '/lbr']),
+            kodes: new Set([normalizeKodeSeri(fac.kodeDefault)].filter(Boolean))
+          });
+        } else {
+          const entry = byName.get(key);
+          entry.tarifs.add(formatRupiah(fac.tarifSatuan) + '/lbr');
+          if (fac.kodeDefault) entry.kodes.add(normalizeKodeSeri(fac.kodeDefault));
+        }
       });
+
+    byName.forEach((entry) => {
+      const opt = document.createElement('option');
+      opt.value = entry.namaFasilitas;
+      const kodeLabel = Array.from(entry.kodes).join(', ');
+      const tarifLabel = Array.from(entry.tarifs).join(' / ');
+      opt.textContent = `${tarifLabel}${kodeLabel ? ` • Seri: ${kodeLabel}` : ''}`;
+      stokDatalist.appendChild(opt);
+    });
   }
 
   const filterSelectIds = ['filter-dist-facility', 'filter-stok-facility', 'rep-facility'];
@@ -1271,7 +1666,7 @@ function populateFacilitySelects() {
     allFacilities.forEach((fac) => {
       const opt = document.createElement('option');
       opt.value = fac.id;
-      opt.textContent = `${fac.namaFasilitas}${fac.isActive === false ? ' (Nonaktif)' : ''}`;
+      opt.textContent = `${formatFacilityOptionName(fac)}${fac.isActive === false ? ' (Nonaktif)' : ''}`;
       sel.appendChild(opt);
     });
     if (prevVal === 'ALL' || allFacilities.some((f) => f.id === prevVal)) {
@@ -1791,7 +2186,86 @@ function formatActorLabel(userEmail) {
   return email;
 }
 
+function updateLogsSelectionUI() {
+  if (!(state.selectedLogIds instanceof Set)) {
+    state.selectedLogIds = new Set();
+  }
+  const count = state.selectedLogIds.size;
+  const countEl = document.getElementById('logs-selected-count');
+  const delBtn = document.getElementById('btn-delete-selected-logs');
+  const clearBtn = document.getElementById('btn-clear-log-selection');
+
+  if (countEl) countEl.textContent = String(count);
+  if (delBtn) {
+    delBtn.disabled = count === 0;
+    delBtn.textContent = `Hapus Terpilih (${count})`;
+  }
+  if (clearBtn) {
+    clearBtn.classList.toggle('hidden', count === 0);
+  }
+}
+
+async function handleDeleteLogs(rawIds) {
+  if (!requireAdmin('menghapus riwayat aktivitas')) return;
+
+  const targetList = Array.isArray(rawIds) ? rawIds : [rawIds];
+  const existingSet = new Set(state.logs.map((l) => l.id));
+  const uniqueIds = Array.from(new Set(targetList.filter((id) => id && existingSet.has(id))));
+  if (uniqueIds.length === 0) return;
+
+  const isSingle = uniqueIds.length === 1;
+  const sampleLog = isSingle ? state.logs.find((l) => l.id === uniqueIds[0]) : null;
+  const confirmed = await showConfirmModal({
+    title: isSingle ? 'Hapus Riwayat Aktivitas?' : `Hapus ${uniqueIds.length} Riwayat Aktivitas?`,
+    message: isSingle
+      ? `Catatan "${sampleLog?.detail || formatActionLabel(sampleLog?.aksi)}" akan dihapus permanen dari riwayat.`
+      : `${uniqueIds.length} catatan riwayat aktivitas yang dipilih akan dihapus permanen dari sistem.`,
+    confirmText: isSingle ? 'Ya, Hapus Catatan' : `Ya, Hapus (${uniqueIds.length})`,
+    variant: 'danger'
+  });
+  if (!confirmed) return;
+
+  try {
+    if (state.mode === 'cloud') {
+      const CHUNK_SIZE = 450;
+      for (let i = 0; i < uniqueIds.length; i += CHUNK_SIZE) {
+        const chunk = uniqueIds.slice(i, i + CHUNK_SIZE);
+        const batch = writeBatch(db);
+        chunk.forEach((logId) => {
+          batch.delete(doc(db, COL_LOGS, logId));
+        });
+        await batch.commit();
+      }
+      const deletedSet = new Set(uniqueIds);
+      state.logs = state.logs.filter((l) => !deletedSet.has(l.id));
+      writeLocalArray(LS_LOGS_KEY, state.logs);
+      state.sync.fingerprints.logs = buildCollectionFingerprint(state.logs);
+    } else {
+      const deletedSet = new Set(uniqueIds);
+      const remaining = readLocalArray(LS_LOGS_KEY).filter((l) => !deletedSet.has(l.id));
+      writeLocalArray(LS_LOGS_KEY, remaining);
+      refreshLocalState();
+    }
+
+    uniqueIds.forEach((id) => state.selectedLogIds.delete(id));
+    renderAuditLogsUI();
+    notifyCrossTabSync('logs');
+    showToast(
+      'info',
+      'Riwayat Aktivitas Dihapus',
+      isSingle
+        ? '1 catatan riwayat aktivitas telah dihapus.'
+        : `${uniqueIds.length} catatan riwayat aktivitas terpilih telah dihapus.`
+    );
+  } catch (err) {
+    console.error('Gagal menghapus riwayat aktivitas:', err);
+    showToast('error', 'Gagal Menghapus Riwayat', err.message || 'Terjadi kesalahan saat menghapus riwayat.');
+  }
+}
+
 function renderAuditLogsUI() {
+  pruneSelectedLogIds();
+
   const sidebarCount = document.getElementById('sidebar-logs-count');
   if (sidebarCount) sidebarCount.textContent = formatNumber(state.logs.length);
 
@@ -1804,13 +2278,23 @@ function renderAuditLogsUI() {
       dashList.innerHTML = recent
         .map(
           (log) => `
-          <div class="py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+          <div class="py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
             <div class="flex items-start sm:items-center gap-2.5 min-w-0">
               <span class="px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 text-slate-700 border border-slate-200 shrink-0">${escapeHtml(formatActionLabel(log.aksi))}</span>
               <span class="text-slate-700 truncate">${escapeHtml(log.detail)}</span>
             </div>
-            <div class="text-[11px] text-slate-400 shrink-0 font-mono-seri">
-              ${escapeHtml(formatActorLabel(log.userEmail))} • ${formatTimestamp(log.waktu)}
+            <div class="flex items-center justify-between sm:justify-end gap-2 shrink-0">
+              <span class="text-[11px] text-slate-400 font-mono-seri">
+                ${escapeHtml(formatActorLabel(log.userEmail))} • ${formatTimestamp(log.waktu)}
+              </span>
+              <button
+                type="button"
+                data-delete-log="${escapeHtml(log.id)}"
+                title="Hapus catatan ini"
+                class="px-2 py-0.5 rounded-md text-[11px] font-medium text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition-colors shrink-0"
+              >
+                Hapus
+              </button>
             </div>
           </div>
         `
@@ -1839,23 +2323,44 @@ function renderAuditLogsUI() {
       modalBody.innerHTML = `<p class="py-8 text-center text-slate-400">Tidak ada catatan aktivitas yang cocok.</p>`;
     } else {
       modalBody.innerHTML = filtered
-        .map(
-          (log) => `
-          <div class="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
-            <div class="space-y-0.5">
-              <div class="flex items-center gap-2">
-                <span class="px-2 py-0.5 rounded-md text-[11px] font-medium bg-blue-50 text-blue-700 border border-blue-200">${escapeHtml(formatActionLabel(log.aksi))}</span>
-                <span class="text-[11px] text-slate-500">${escapeHtml(formatActorLabel(log.userEmail))}</span>
+        .map((log) => {
+          const isChecked = state.selectedLogIds.has(log.id);
+          return `
+          <div class="py-3 flex items-start gap-3 ${isChecked ? 'bg-rose-50/40 -mx-1 px-1 rounded-lg' : ''}">
+            <input
+              type="checkbox"
+              data-log-checkbox="${escapeHtml(log.id)}"
+              ${isChecked ? 'checked' : ''}
+              aria-label="Pilih riwayat ${escapeHtml(formatActionLabel(log.aksi))}"
+              class="mt-1 h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500 cursor-pointer shrink-0"
+            />
+            <div class="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div class="space-y-0.5 min-w-0">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="px-2 py-0.5 rounded-md text-[11px] font-medium bg-blue-50 text-blue-700 border border-blue-200">${escapeHtml(formatActionLabel(log.aksi))}</span>
+                  <span class="text-[11px] text-slate-500">${escapeHtml(formatActorLabel(log.userEmail))}</span>
+                </div>
+                <p class="text-slate-800 font-medium break-words">${escapeHtml(log.detail)}</p>
               </div>
-              <p class="text-slate-800 font-medium">${escapeHtml(log.detail)}</p>
+              <div class="flex items-center gap-2 shrink-0">
+                <span class="text-[11px] font-mono-seri text-slate-400">${formatTimestamp(log.waktu)}</span>
+                <button
+                  type="button"
+                  data-delete-log="${escapeHtml(log.id)}"
+                  class="px-2.5 py-1 rounded-lg text-[11px] font-semibold text-rose-600 bg-rose-50/70 hover:bg-rose-100 border border-rose-200 transition-colors"
+                >
+                  Hapus
+                </button>
+              </div>
             </div>
-            <span class="text-[11px] font-mono-seri text-slate-400 shrink-0">${formatTimestamp(log.waktu)}</span>
           </div>
-        `
-        )
+        `;
+        })
         .join('');
     }
   }
+
+  updateLogsSelectionUI();
 }
 
 /* ==========================================================================
@@ -2989,7 +3494,11 @@ function openApproveRequestModal(reqId) {
       opt.value = b.id;
       const startSeri = formatSingleSeri(b.kodeHuruf, b.angkaSisaMulai);
       const endSeri = formatSingleSeri(b.kodeHuruf, b.angkaSampai);
-      opt.textContent = `${b.isReturBatch ? 'Retur • ' : ''}${startSeri} – ${endSeri} (Sisa ${formatNumber(b.sisaStok)} Lbr)`;
+      const bTarif =
+        b.tarifSatuan !== undefined && b.tarifSatuan !== null
+          ? Number(b.tarifSatuan) || 0
+          : Number(reqObj.tarifSatuan) || 0;
+      opt.textContent = `${b.isReturBatch ? 'Retur • ' : ''}${startSeri} – ${endSeri} (Sisa ${formatNumber(b.sisaStok)} Lbr • ${formatRupiah(bTarif)}/lbr)`;
       stockSelect.appendChild(opt);
     });
   }
@@ -3025,7 +3534,11 @@ function updateApproveRequestModalPreview() {
   const startNum = Number(batch.angkaSisaMulai) || 1;
   const endNum = startNum + jml - 1;
   const seriRange = formatSeriRange(batch.kodeHuruf, startNum, endNum);
-  const nominal = jml * (Number(reqObj.tarifSatuan) || 0);
+  const unitTarif =
+    batch.tarifSatuan !== undefined && batch.tarifSatuan !== null
+      ? Number(batch.tarifSatuan) || 0
+      : Number(reqObj.tarifSatuan) || 0;
+  const nominal = jml * unitTarif;
 
   if (seriEl) seriEl.textContent = seriRange;
   if (nomEl) nomEl.textContent = formatRupiah(nominal);
@@ -3062,7 +3575,10 @@ async function handleApproveRequestSubmit(e) {
   const startNum = Number(batch.angkaSisaMulai);
   const endNum = startNum + jml - 1;
   const seriKeluar = formatSeriRange(batch.kodeHuruf, startNum, endNum);
-  const tarif = Number(reqObj.tarifSatuan) || Number(batch.tarifSatuan) || 0;
+  const tarif =
+    batch.tarifSatuan !== undefined && batch.tarifSatuan !== null
+      ? Number(batch.tarifSatuan) || 0
+      : Number(reqObj.tarifSatuan) || 0;
   const totalNominal = jml * tarif;
   const penerimaStr = `${reqObj.namaPemohon}${reqObj.unitTugas ? ` (${reqObj.unitTugas})` : ''}`;
 
@@ -3277,13 +3793,20 @@ function populateDistStockSelect() {
     return;
   }
 
+  const facSelected = state.facilities.find((f) => f.id === facilityId);
   stockSelect.innerHTML = '';
   available.forEach((b) => {
     const opt = document.createElement('option');
     opt.value = b.id;
     const sStart = formatSingleSeri(b.kodeHuruf, b.angkaSisaMulai);
     const sEnd = formatSingleSeri(b.kodeHuruf, b.angkaSampai);
-    opt.textContent = `${b.isReturBatch ? 'Retur • ' : ''}${sStart} – ${sEnd} (Sisa ${formatNumber(b.sisaStok)} Lbr)`;
+    const bTarif =
+      b.tarifSatuan !== undefined && b.tarifSatuan !== null
+        ? Number(b.tarifSatuan) || 0
+        : facSelected
+          ? Number(facSelected.tarifSatuan) || 0
+          : 0;
+    opt.textContent = `${b.isReturBatch ? 'Retur • ' : ''}${sStart} – ${sEnd} (Sisa ${formatNumber(b.sisaStok)} Lbr • ${formatRupiah(bTarif)}/lbr)`;
     stockSelect.appendChild(opt);
   });
 
@@ -3310,7 +3833,12 @@ function renderDistribusiLivePreview() {
 
   const fac = state.facilities.find((f) => f.id === facId);
   const stock = state.stocks.find((s) => s.id === stockId);
-  const tarif = fac ? Number(fac.tarifSatuan) || 0 : stock ? Number(stock.tarifSatuan) || 0 : 0;
+  const tarif =
+    stock && stock.tarifSatuan !== undefined && stock.tarifSatuan !== null
+      ? Number(stock.tarifSatuan) || 0
+      : fac
+        ? Number(fac.tarifSatuan) || 0
+        : 0;
 
   if (tarifEl) tarifEl.textContent = formatRupiah(tarif);
 
@@ -3402,7 +3930,12 @@ async function handleDistribusiSubmit(e) {
   const startNum = Number(stock.angkaSisaMulai);
   const endNum = startNum + jumlahKeluar - 1;
   const seriKeluar = formatSeriRange(stock.kodeHuruf, startNum, endNum);
-  const tarifSatuan = fac ? Number(fac.tarifSatuan) : Number(stock.tarifSatuan) || 0;
+  const tarifSatuan =
+    stock.tarifSatuan !== undefined && stock.tarifSatuan !== null
+      ? Number(stock.tarifSatuan) || 0
+      : fac
+        ? Number(fac.tarifSatuan) || 0
+        : 0;
   const totalNominal = jumlahKeluar * tarifSatuan;
 
   // Cocokkan apakah nama penerima sesuai dengan salah satu akun user terdaftar
@@ -4002,17 +4535,38 @@ async function handleReturSubmit(e) {
    15. VIEW 3: GUDANG STOK & VALIDASI ANTI-OVERLAP NOMOR SERI (ADMIN)
    ========================================================================== */
 
-export function findOverlappingStockBatch(stocksList, facilityId, kodeHuruf, startNum, endNum) {
+export function findOverlappingStockBatch(stocksList, facilityId, kodeHuruf, startNum, endNum, facilityName = '') {
   const code = String(kodeHuruf || '').trim().toUpperCase();
   const s = Number(startNum);
   const e = Number(endNum);
-  if (!facilityId || !code || isNaN(s) || isNaN(e) || e < s) return null;
+  const targetFacName = String(facilityName || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  if ((!facilityId && !targetFacName) || !code || isNaN(s) || isNaN(e) || e < s) return null;
+
+  const facNameById =
+    typeof state !== 'undefined' && Array.isArray(state.facilities)
+      ? new Map(
+          state.facilities.map((f) => [
+            f.id,
+            String(f.namaFasilitas || '').trim().replace(/\s+/g, ' ').toLowerCase()
+          ])
+        )
+      : null;
 
   return (
     stocksList.find((batch) => {
       if (batch.isReturBatch) return false;
-      if (batch.facilityId !== facilityId) return false;
       if (String(batch.kodeHuruf || '').trim().toUpperCase() !== code) return false;
+
+      const sameId = Boolean(facilityId) && batch.facilityId === facilityId;
+      const batchFacName = String(
+        (facNameById && facNameById.get(batch.facilityId)) || batch.jenisFasilitas || ''
+      )
+        .trim()
+        .replace(/\s+/g, ' ')
+        .toLowerCase();
+      const sameName = Boolean(targetFacName) && batchFacName === targetFacName;
+      if (!sameId && !sameName) return false;
+
       const bStart = Number(batch.angkaMulai);
       const bEnd = Number(batch.angkaSampai);
       return Math.max(s, bStart) <= Math.min(e, bEnd);
@@ -4024,49 +4578,66 @@ function renderStokSummaryAndPreview() {
   const cardsEl = document.getElementById('stok-facility-summary-cards');
   if (cardsEl) {
     const facById = new Map(state.facilities.map((f) => [f.id, f]));
-    const facByName = new Map();
-    state.facilities.forEach((f) => {
-      const key = normalizeFacilityName(f.namaFasilitas);
-      if (key && !facByName.has(key)) facByName.set(key, f);
-    });
 
-    // Papan informasi menyesuaikan dari karcis yang didaftarkan admin; nama fasilitas yang sama digabungkan menjadi satu
+    // Papan informasi dipisahkan jika nama fasilitas ATAU nomor/kode serinya berbeda;
+    // hanya batch dengan nama fasilitas, kode seri, dan tarif yang sama yang digabung menjadi satu
     const boardMap = new Map();
     state.stocks.forEach((stk) => {
-      const linkedFac = facById.get(stk.facilityId);
+      const linkedFac = facById.get(stk.facilityId) || null;
       const displayName = String(linkedFac?.namaFasilitas || stk.jenisFasilitas || '').trim();
-      const key = normalizeFacilityName(displayName);
-      if (!key) return;
+      const nameKey = normalizeFacilityName(displayName);
+      if (!nameKey) return;
 
-      const matchedFac = linkedFac || facByName.get(key) || null;
-      const existing = boardMap.get(key);
+      const kodeSeri = normalizeKodeSeri(stk.kodeHuruf || linkedFac?.kodeDefault || '') || 'KRC';
+      const matchedFac =
+        linkedFac ||
+        findFacilityByNameAndKode(displayName, kodeSeri) ||
+        findFacilityByName(displayName) ||
+        null;
+
+      const resolvedTarif =
+        stk.tarifSatuan !== undefined && stk.tarifSatuan !== null
+          ? Math.max(0, Number(stk.tarifSatuan) || 0)
+          : Math.max(0, Number(linkedFac?.tarifSatuan ?? matchedFac?.tarifSatuan ?? 0) || 0);
+
+      const groupKey = `${nameKey}__${kodeSeri}__${resolvedTarif}`;
+      const existing = boardMap.get(groupKey);
+      const stkSisa = Number(stk.sisaStok) || 0;
+      const stkSisaMulai = Number(stk.angkaSisaMulai) || 0;
+      const stkSampai = Number(stk.angkaSampai) || 0;
+
       if (existing) {
-        existing.sisa += Number(stk.sisaStok) || 0;
+        existing.sisa += stkSisa;
         existing.totalAwal += Number(stk.totalAwal) || 0;
         existing.batchCount += 1;
-        if (!existing.kodeDefault && stk.kodeHuruf) {
-          existing.kodeDefault = String(stk.kodeHuruf).toUpperCase();
-        }
-        if (!(existing.tarifSatuan > 0) && Number(stk.tarifSatuan) > 0) {
-          existing.tarifSatuan = Number(stk.tarifSatuan);
+        if (stkSisa > 0 && stkSisaMulai > 0 && stkSampai >= stkSisaMulai) {
+          existing.minSisaMulai =
+            existing.minSisaMulai > 0 ? Math.min(existing.minSisaMulai, stkSisaMulai) : stkSisaMulai;
+          existing.maxSampai = Math.max(existing.maxSampai, stkSampai);
         }
       } else {
-        boardMap.set(key, {
-          key,
+        boardMap.set(groupKey, {
+          key: groupKey,
           namaFasilitas: matchedFac?.namaFasilitas || displayName,
-          kodeDefault: String(matchedFac?.kodeDefault || stk.kodeHuruf || '').toUpperCase(),
-          tarifSatuan: Number(matchedFac?.tarifSatuan ?? stk.tarifSatuan ?? 0) || 0,
+          kodeDefault: kodeSeri,
+          tarifSatuan: resolvedTarif,
           batasMinimum: Number(matchedFac?.batasMinimum ?? 200) || 0,
-          sisa: Number(stk.sisaStok) || 0,
+          sisa: stkSisa,
           totalAwal: Number(stk.totalAwal) || 0,
-          batchCount: 1
+          batchCount: 1,
+          minSisaMulai: stkSisa > 0 && stkSisaMulai > 0 && stkSampai >= stkSisaMulai ? stkSisaMulai : 0,
+          maxSampai: stkSisa > 0 && stkSisaMulai > 0 && stkSampai >= stkSisaMulai ? stkSampai : 0
         });
       }
     });
 
-    const boardItems = Array.from(boardMap.values()).sort((a, b) =>
-      String(a.namaFasilitas || '').localeCompare(String(b.namaFasilitas || ''), 'id')
-    );
+    const boardItems = Array.from(boardMap.values()).sort((a, b) => {
+      const cmpName = String(a.namaFasilitas || '').localeCompare(String(b.namaFasilitas || ''), 'id');
+      if (cmpName !== 0) return cmpName;
+      const cmpKode = String(a.kodeDefault || '').localeCompare(String(b.kodeDefault || ''), 'id');
+      if (cmpKode !== 0) return cmpKode;
+      return (a.tarifSatuan || 0) - (b.tarifSatuan || 0);
+    });
 
     if (boardItems.length === 0) {
       cardsEl.innerHTML = `
@@ -4079,6 +4650,10 @@ function renderStokSummaryAndPreview() {
         .map((item) => {
           const bdl = toBendelLembar(item.sisa);
           const isLow = item.sisa <= item.batasMinimum;
+          const seriRangeLine =
+            item.minSisaMulai > 0 && item.maxSampai >= item.minSisaMulai
+              ? `<p class="text-[11px] font-mono-seri text-slate-400 mt-0.5 truncate">Seri: ${escapeHtml(formatSeriRange(item.kodeDefault, item.minSisaMulai, item.maxSampai))}</p>`
+              : '';
           return `
             <div class="bg-white rounded-2xl border ${
               isLow ? 'border-amber-300 bg-amber-50/30' : 'border-slate-200/90'
@@ -4090,6 +4665,7 @@ function renderStokSummaryAndPreview() {
               <div class="mt-2">
                 <p class="text-base font-bold ${isLow ? 'text-rose-600' : 'text-slate-900'} tabular-nums">${bdl.shortFormatted}</p>
                 <p class="text-[11px] text-slate-500 tabular-nums">${formatNumber(item.sisa)} Lembar • ${formatRupiah(item.tarifSatuan)}/lbr</p>
+                ${seriRangeLine}
               </div>
             </div>
           `;
@@ -4100,7 +4676,9 @@ function renderStokSummaryAndPreview() {
 
   // Live Preview Pendaftaran Batch Stok Baru
   const rawFacName = (document.getElementById('stok-facility-name')?.value || '').trim();
-  const matchedFac = findFacilityByName(rawFacName);
+  const kode = normalizeKodeSeri(document.getElementById('stok-kode')?.value || '');
+  const matchedFac = kode ? findFacilityByNameAndKode(rawFacName, kode) : findFacilityByName(rawFacName);
+  const existingGroup = rawFacName && kode ? findExistingStockGroupByNameAndKode(rawFacName, kode) : null;
   const facId = matchedFac?.id || '';
   const tarifRaw = document.getElementById('stok-tarif')?.value ?? '';
   const tarifVal =
@@ -4108,8 +4686,9 @@ function renderStokSummaryAndPreview() {
       ? Math.max(0, Number(tarifRaw) || 0)
       : matchedFac
         ? Math.max(0, Number(matchedFac.tarifSatuan) || 0)
-        : 0;
-  const kode = (document.getElementById('stok-kode')?.value || '').trim().toUpperCase();
+        : existingGroup
+          ? Math.max(0, Number(existingGroup.tarifSatuan) || 0)
+          : 0;
   const mulai = parseInt(document.getElementById('stok-mulai')?.value || '0', 10);
   const sampai = parseInt(document.getElementById('stok-sampai')?.value || '0', 10);
 
@@ -4159,7 +4738,8 @@ function renderStokSummaryAndPreview() {
   if (lembarSubEl) lembarSubEl.textContent = `(${formatNumber(totalAwal)} Lembar)`;
   if (nilaiEl) nilaiEl.textContent = formatRupiah(nilai);
 
-  const overlapBatch = facId ? findOverlappingStockBatch(state.stocks, facId, kode, mulai, sampai) : null;
+  const overlapBatch =
+    rawFacName && kode ? findOverlappingStockBatch(state.stocks, facId, kode, mulai, sampai, rawFacName) : null;
   if (overlapBatch) {
     if (badgeEl) {
       badgeEl.textContent = 'Seri sudah ada';
@@ -4202,34 +4782,71 @@ function resetStokFormHelperState() {
   }
 }
 
+function updateStokMatchHint() {
+  const nameInp = document.getElementById('stok-facility-name');
+  const kodeInp = document.getElementById('stok-kode');
+  const hintEl = document.getElementById('stok-facility-match-hint');
+  if (!nameInp || !kodeInp || !hintEl) return;
+
+  const trimmed = (nameInp.value || '').trim();
+  if (!trimmed) {
+    hintEl.textContent = '';
+    hintEl.className = 'hidden text-[11px] font-medium mt-1';
+    return;
+  }
+
+  const kodeVal = normalizeKodeSeri(kodeInp.value);
+  const exactFac = kodeVal ? findFacilityByNameAndKode(trimmed, kodeVal) : findFacilityByName(trimmed);
+  const existingStockGroup = kodeVal ? findExistingStockGroupByNameAndKode(trimmed, kodeVal) : null;
+  const anySameNameFac = findFacilityByName(trimmed);
+
+  if (exactFac) {
+    hintEl.textContent = `Fasilitas & seri ${exactFac.kodeDefault || kodeVal} sudah terdaftar (${formatRupiah(exactFac.tarifSatuan)}/lbr) — stok digabung`;
+    hintEl.className = 'text-[11px] font-medium mt-1 text-blue-700';
+  } else if (existingStockGroup) {
+    const grpTarif =
+      existingStockGroup.tarifSatuan !== undefined && existingStockGroup.tarifSatuan !== null
+        ? Number(existingStockGroup.tarifSatuan) || 0
+        : Number(anySameNameFac?.tarifSatuan || 0);
+    hintEl.textContent = `Seri ${kodeVal} sudah ada (${formatRupiah(grpTarif)}/lbr) — digabung ke seri ${kodeVal} & dipisah dari seri lain`;
+    hintEl.className = 'text-[11px] font-medium mt-1 text-blue-700';
+  } else if (anySameNameFac && kodeVal) {
+    hintEl.textContent = `Seri ${kodeVal} berbeda dari seri ${anySameNameFac.kodeDefault || 'lain'} — dipisahkan & tidak digabung`;
+    hintEl.className = 'text-[11px] font-medium mt-1 text-emerald-700';
+  } else {
+    hintEl.textContent = 'Fasilitas baru — didaftarkan otomatis saat simpan';
+    hintEl.className = 'text-[11px] font-medium mt-1 text-emerald-700';
+  }
+}
+
 function handleStokFacilityNameChange(options = {}) {
   const nameInp = document.getElementById('stok-facility-name');
   const tarifInp = document.getElementById('stok-tarif');
   const kodeInp = document.getElementById('stok-kode');
-  const hintEl = document.getElementById('stok-facility-match-hint');
   if (!nameInp || !tarifInp || !kodeInp) return;
 
   const trimmed = (nameInp.value || '').trim();
-  const matchedFac = findFacilityByName(trimmed);
+  const manualKode = kodeInp.dataset.manualEdited ? normalizeKodeSeri(kodeInp.value) : '';
+  const matchedFac = manualKode
+    ? findFacilityByNameAndKode(trimmed, manualKode)
+    : findFacilityByName(trimmed);
+  const existingStockGroup =
+    !matchedFac && manualKode ? findExistingStockGroupByNameAndKode(trimmed, manualKode) : null;
 
   if (matchedFac) {
     const isNewMatch = nameInp.dataset.lastMatchedFacId !== matchedFac.id;
     nameInp.dataset.lastMatchedFacId = matchedFac.id;
 
-    if (hintEl) {
-      hintEl.textContent = `Fasilitas terdaftar (${formatRupiah(matchedFac.tarifSatuan)}/lbr) — stok digabung`;
-      hintEl.className = 'text-[11px] font-medium mt-1 text-blue-700';
-    }
-
     if (isNewMatch || !tarifInp.dataset.manualEdited) {
       tarifInp.value = String(Number(matchedFac.tarifSatuan) || 0);
       tarifInp.dataset.autofilled = 'true';
     }
-    if (isNewMatch || !kodeInp.dataset.manualEdited) {
+    if (!kodeInp.dataset.manualEdited && (isNewMatch || !kodeInp.value)) {
       kodeInp.value = matchedFac.kodeDefault || '';
       kodeInp.dataset.autofilled = 'true';
     }
 
+    updateStokMatchHint();
     if (isNewMatch || options.forceSuggest) {
       const mulaiInp = document.getElementById('stok-mulai');
       if (mulaiInp && (!mulaiInp.value || mulaiInp.dataset.autofilled === 'true')) {
@@ -4237,18 +4854,15 @@ function handleStokFacilityNameChange(options = {}) {
         return;
       }
     }
+  } else if (existingStockGroup) {
+    nameInp.dataset.lastMatchedFacId = '';
+    if (!tarifInp.dataset.manualEdited && existingStockGroup.tarifSatuan != null) {
+      tarifInp.value = String(Number(existingStockGroup.tarifSatuan) || 0);
+      tarifInp.dataset.autofilled = 'true';
+    }
+    updateStokMatchHint();
   } else {
     nameInp.dataset.lastMatchedFacId = '';
-
-    if (hintEl) {
-      if (trimmed) {
-        hintEl.textContent = 'Fasilitas baru — didaftarkan otomatis saat simpan';
-        hintEl.className = 'text-[11px] font-medium mt-1 text-emerald-700';
-      } else {
-        hintEl.textContent = '';
-        hintEl.className = 'hidden text-[11px] font-medium mt-1';
-      }
-    }
 
     if (tarifInp.dataset.autofilled === 'true' && !tarifInp.dataset.manualEdited) {
       tarifInp.value = '';
@@ -4262,6 +4876,7 @@ function handleStokFacilityNameChange(options = {}) {
         delete kodeInp.dataset.autofilled;
       }
     }
+    updateStokMatchHint();
   }
 
   renderStokSummaryAndPreview();
@@ -4269,20 +4884,26 @@ function handleStokFacilityNameChange(options = {}) {
 
 function suggestNextStockSerial() {
   const rawName = (document.getElementById('stok-facility-name')?.value || '').trim();
-  const matchedFac = findFacilityByName(rawName);
+  const targetNameKey = normalizeFacilityName(rawName);
+  const kode = normalizeKodeSeri(document.getElementById('stok-kode')?.value || '');
+  const matchedFac = kode ? findFacilityByNameAndKode(rawName, kode) : findFacilityByName(rawName);
   const facId = matchedFac?.id || '';
-  const kode = (document.getElementById('stok-kode')?.value || '').trim().toUpperCase();
   const mulaiInput = document.getElementById('stok-mulai');
   const sampaiInput = document.getElementById('stok-sampai');
   if (!mulaiInput) return;
 
-  const sameBatches = facId
-    ? state.stocks.filter(
-        (s) =>
-          !s.isReturBatch &&
-          s.facilityId === facId &&
-          (!kode || String(s.kodeHuruf || '').toUpperCase() === kode)
-      )
+  const facNameById = new Map(
+    state.facilities.map((f) => [f.id, normalizeFacilityName(f.namaFasilitas)])
+  );
+
+  const sameBatches = targetNameKey
+    ? state.stocks.filter((s) => {
+        if (s.isReturBatch) return false;
+        const sNameKey = normalizeFacilityName(facNameById.get(s.facilityId) || s.jenisFasilitas);
+        const sameFac = (facId && s.facilityId === facId) || sNameKey === targetNameKey;
+        if (!sameFac) return false;
+        return !kode || normalizeKodeSeri(s.kodeHuruf) === kode;
+      })
     : [];
 
   const maxEnd = sameBatches.reduce((max, b) => Math.max(max, Number(b.angkaSampai) || 0), 0);
@@ -4302,7 +4923,7 @@ async function handleStokSubmit(e) {
 
   const rawNama = (document.getElementById('stok-facility-name')?.value || '').trim().replace(/\s+/g, ' ');
   const rawTarif = (document.getElementById('stok-tarif')?.value ?? '').trim();
-  const kodeHuruf = (document.getElementById('stok-kode')?.value || '').trim().toUpperCase();
+  const kodeHuruf = normalizeKodeSeri(document.getElementById('stok-kode')?.value || '');
   const angkaMulai = parseInt(document.getElementById('stok-mulai')?.value || '0', 10);
   const angkaSampai = parseInt(document.getElementById('stok-sampai')?.value || '0', 10);
 
@@ -4322,17 +4943,23 @@ async function handleStokSubmit(e) {
     return;
   }
 
-  let matchedFac = findFacilityByName(rawNama);
-  if (matchedFac) {
-    const overlap = findOverlappingStockBatch(state.stocks, matchedFac.id, kodeHuruf, angkaMulai, angkaSampai);
-    if (overlap) {
-      showToast(
-        'error',
-        'Nomor Seri Tumpang Tindih (Overlap)',
-        `Rentang tersebut beririsan dengan batch ${formatSeriRange(overlap.kodeHuruf, overlap.angkaMulai, overlap.angkaSampai)}.`
-      );
-      return;
-    }
+  const hadSameNameDifferentSeri = Boolean(findFacilityByName(rawNama));
+  let matchedFac = findFacilityByNameAndKode(rawNama, kodeHuruf);
+  const overlap = findOverlappingStockBatch(
+    state.stocks,
+    matchedFac?.id || '',
+    kodeHuruf,
+    angkaMulai,
+    angkaSampai,
+    rawNama
+  );
+  if (overlap) {
+    showToast(
+      'error',
+      'Nomor Seri Tumpang Tindih (Overlap)',
+      `Rentang tersebut beririsan dengan batch ${formatSeriRange(overlap.kodeHuruf, overlap.angkaMulai, overlap.angkaSampai)}.`
+    );
+    return;
   }
 
   const totalAwal = angkaSampai - angkaMulai + 1;
@@ -4375,7 +5002,7 @@ async function handleStokSubmit(e) {
         matchedFac = newFac;
       }
     } else if (Number(matchedFac.tarifSatuan) !== tarifSatuan || matchedFac.isActive === false) {
-      // Sinkronkan perubahan tarif manual atau aktifkan kembali fasilitas jika sebelumnya nonaktif
+      // Sinkronkan perubahan tarif manual hanya untuk fasilitas dengan kode seri yang sama
       if (state.mode === 'cloud') {
         await updateDoc(doc(db, COL_FACILITIES, matchedFac.id), {
           tarifSatuan,
@@ -4423,10 +5050,16 @@ async function handleStokSubmit(e) {
       refreshLocalState();
     }
 
+    const actionDesc = createdNewFacility
+      ? hadSameNameDifferentSeri
+        ? `Mendaftarkan seri terpisah [${kodeHuruf}] untuk ${matchedFac.namaFasilitas}`
+        : 'Mendaftarkan fasilitas baru & pemasukan'
+      : `Pemasukan (gabung seri ${kodeHuruf}) stok ${matchedFac.namaFasilitas}`;
     await logActivity(
       'TAMBAH_STOK',
-      `${createdNewFacility ? 'Mendaftarkan fasilitas baru & pemasukan' : 'Pemasukan (gabung fasilitas)'} stok ${matchedFac.namaFasilitas} (${formatRupiah(tarifSatuan)}/lbr): ${seriRange} (${formatNumber(totalAwal)} lembar).`
+      `${actionDesc} (${formatRupiah(tarifSatuan)}/lbr): ${seriRange} (${formatNumber(totalAwal)} lembar).`
     );
+    notifyCrossTabSync('stocks');
 
     const form = document.getElementById('form-stok');
     if (form) form.reset();
@@ -4435,7 +5068,11 @@ async function handleStokSubmit(e) {
 
     showToast(
       'success',
-      createdNewFacility ? 'Fasilitas & Stok Karcis Didaftarkan' : 'Stok Karcis Berhasil Digabungkan',
+      createdNewFacility
+        ? hadSameNameDifferentSeri
+          ? `Seri Terpisah [${kodeHuruf}] Ditambahkan`
+          : 'Fasilitas & Stok Karcis Didaftarkan'
+        : `Stok Seri ${kodeHuruf} Berhasil Digabungkan`,
       `${matchedFac.namaFasilitas}: batch ${seriRange} (${toBendelLembar(totalAwal).shortFormatted}) telah ditambahkan.`
     );
   } catch (err) {
@@ -5367,6 +6004,12 @@ function bindEvents() {
       handleToggleFacilityStatus(toggleFacBtn.getAttribute('data-toggle-fac'));
       return;
     }
+
+    const delLogBtn = e.target.closest('[data-delete-log]');
+    if (delLogBtn) {
+      handleDeleteLogs(delLogBtn.getAttribute('data-delete-log'));
+      return;
+    }
   });
 
   // Tahun Anggaran Selector
@@ -5428,7 +6071,7 @@ function bindEvents() {
   document.getElementById('btn-confirm-ok')?.addEventListener('click', () => closeConfirmModal(true));
   document.getElementById('btn-confirm-cancel')?.addEventListener('click', () => closeConfirmModal(false));
 
-  // Modal Audit Logs
+  // Modal Riwayat Aktivitas (termasuk checklist & hapus persatuan)
   const openLogsModal = () => {
     renderAuditLogsUI();
     document.getElementById('modal-logs')?.classList.remove('hidden');
@@ -5441,6 +6084,29 @@ function bindEvents() {
   document.getElementById('filter-logs-search')?.addEventListener('input', (e) => {
     state.filters.logsSearch = e.target.value || '';
     renderAuditLogsUI();
+  });
+  document.getElementById('modal-logs-body')?.addEventListener('change', (e) => {
+    const cb = e.target.closest('input[data-log-checkbox]');
+    if (!cb) return;
+    const logId = cb.getAttribute('data-log-checkbox');
+    if (!logId) return;
+    if (cb.checked) {
+      state.selectedLogIds.add(logId);
+    } else {
+      state.selectedLogIds.delete(logId);
+    }
+    const row = cb.closest('div.py-3');
+    if (row) {
+      row.classList.toggle('bg-rose-50/40', cb.checked);
+    }
+    updateLogsSelectionUI();
+  });
+  document.getElementById('btn-clear-log-selection')?.addEventListener('click', () => {
+    state.selectedLogIds.clear();
+    renderAuditLogsUI();
+  });
+  document.getElementById('btn-delete-selected-logs')?.addEventListener('click', () => {
+    handleDeleteLogs(Array.from(state.selectedLogIds));
   });
 
   // Filter Antrean Permintaan Karcis (Admin)
@@ -5603,6 +6269,7 @@ function bindEvents() {
       e.target.dataset.manualEdited = 'true';
       delete e.target.dataset.autofilled;
     }
+    updateStokMatchHint();
     renderStokSummaryAndPreview();
   });
   document.getElementById('stok-mulai')?.addEventListener('input', (e) => {
@@ -5769,7 +6436,6 @@ async function initAuthAndBoot() {
   bindEvents();
 
   async function bootWithSession() {
-    ensureLocalDataSeeded();
     let session = null;
     try {
       session = JSON.parse(localStorage.getItem(LS_SESSION_KEY) || 'null');
@@ -5782,7 +6448,7 @@ async function initAuthAndBoot() {
       return false;
     }
 
-    // Jika Firebase Cloud aktif, verifikasi sesi langsung ke Cloud Firestore & aktifkan sinkronisasi real-time
+    // Jika Firebase Cloud aktif, verifikasi sesi langsung ke Cloud Firestore & aktifkan sinkronisasi otomatis
     if (isFirebaseConfigured()) {
       try {
         await migrateLocalDataToCloudOnce();
@@ -5840,6 +6506,7 @@ async function initAuthAndBoot() {
       }
     }
 
+    ensureLocalDataSeeded();
     const users = readLocalArray(LS_USERS_KEY);
     const freshUser =
       users.find(
