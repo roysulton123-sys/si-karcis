@@ -231,15 +231,6 @@
       <!-- Footer Ringkas -->
       <div class="relative z-10 flex items-center justify-between text-xs text-slate-400 border-t border-slate-800/80 pt-4">
         <span>&copy; 2026 SI-KARCIS</span>
-        <button
-          type="button"
-          id="btn-fill-admin-desktop"
-          class="inline-flex items-center gap-1.5 text-slate-300 hover:text-white font-semibold transition"
-          title="Isi otomatis akun Administrator bawaan"
-        >
-          <span>Isi Cepat Akun Admin</span>
-          <span class="text-blue-400">&rarr;</span>
-        </button>
       </div>
     </section>
 
@@ -247,16 +238,8 @@
          PANEL KANAN: FORM LOGIN (DEFAULT) & PENDAFTARAN AKUN PETUGAS
          ====================================================================== -->
     <main class="lg:col-span-5 relative flex flex-col justify-center px-5 py-10 sm:px-10 md:px-14 lg:px-10 xl:px-12 bg-pearl-pattern">
-      <!-- Ikon Info Kecil di Sudut Kanan Atas (Menggantikan Banner Teknis Debug) -->
+      <!-- Ikon Info Kecil di Sudut Kanan Atas -->
       <div class="absolute top-4 right-4 flex items-center gap-2">
-        <button
-          type="button"
-          id="btn-fill-admin-mobile"
-          class="text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-slate-200/80 hover:bg-blue-50 text-slate-700 hover:text-blue-700 transition"
-          title="Isi otomatis email & kata sandi Admin"
-        >
-          Akun Admin
-        </button>
         <div id="local-mode-banner" class="hidden relative group">
           <button
             type="button"
@@ -467,8 +450,8 @@
             </div>
           </div>
 
-          <!-- Panel Unduh Aplikasi Android (.APK) & Status Sinkronisasi Lintas Perangkat -->
-          <div class="px-6 sm:px-8 pb-6 pt-1">
+          <!-- Panel Unduh Aplikasi Android (.APK) -->
+          <div id="android-download-wrapper" class="px-6 sm:px-8 pb-6 pt-1">
             <div id="android-download-box" class="rounded-xl border border-emerald-200/90 bg-emerald-50/70 p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div class="flex items-start sm:items-center gap-2.5 min-w-0">
                 <div class="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
@@ -492,29 +475,6 @@
                 </svg>
                 <span>Unduh .APK</span>
               </a>
-            </div>
-
-            <div id="android-app-active-box" class="hidden rounded-xl border border-blue-200 bg-blue-50/70 p-3 flex items-center justify-between gap-2">
-              <div class="flex items-center gap-2 min-w-0">
-                <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
-                <p class="text-[11px] font-semibold text-slate-800 truncate">Aplikasi Android Aktif • Sinkron Real-Time</p>
-              </div>
-              <div class="flex items-center gap-1.5 shrink-0">
-                <button
-                  type="button"
-                  id="btn-login-sync-now"
-                  class="px-2.5 py-1 rounded-lg bg-white border border-blue-200 text-[11px] font-bold text-blue-700 hover:bg-blue-100 transition shrink-0"
-                >
-                  Sinkronkan
-                </button>
-                <button
-                  type="button"
-                  id="btn-login-exit-app"
-                  class="px-2.5 py-1 rounded-lg bg-rose-50 border border-rose-200 text-[11px] font-bold text-rose-700 hover:bg-rose-100 transition shrink-0"
-                >
-                  Keluar
-                </button>
-              </div>
             </div>
           </div>
         </div>
@@ -675,16 +635,6 @@
     tabBtnRegister.addEventListener('click', () => switchTab('register'));
     linkToRegister.addEventListener('click', () => switchTab('register'));
     linkToLogin.addEventListener('click', () => switchTab('login'));
-
-    function fillAdminCredentials() {
-      switchTab('login');
-      loginEmail.value = DEFAULT_ADMIN_ACCOUNT.email;
-      loginPassword.value = DEFAULT_ADMIN_ACCOUNT.password;
-      showToast('Akun Admin siap digunakan. Klik "Masuk ke Sistem".', 'info');
-    }
-
-    document.getElementById('btn-fill-admin-desktop')?.addEventListener('click', fillAdminCredentials);
-    document.getElementById('btn-fill-admin-mobile')?.addEventListener('click', fillAdminCredentials);
 
     document.getElementById('toggle-password-btn')?.addEventListener('click', () => {
       const isPwd = loginPassword.type === 'password';
@@ -895,25 +845,12 @@
       const isAndroidNative = Boolean(
         window.AndroidBridge || /SIKarcisAndroid/i.test(navigator.userAgent || '')
       );
+      const dlWrapper = document.getElementById('android-download-wrapper');
       const dlBox = document.getElementById('android-download-box');
-      const activeBox = document.getElementById('android-app-active-box');
-      const syncNowBtn = document.getElementById('btn-login-sync-now');
-      const exitAppBtn = document.getElementById('btn-login-exit-app');
 
       if (isAndroidNative) {
+        if (dlWrapper) dlWrapper.classList.add('hidden');
         if (dlBox) dlBox.classList.add('hidden');
-        if (activeBox) activeBox.classList.remove('hidden');
-      }
-      if (syncNowBtn) {
-        syncNowBtn.addEventListener('click', async () => {
-          await syncUsersWithCloudFirestore();
-          showToast('Data akun disinkronkan dari Cloud.', 'success');
-        });
-      }
-      if (exitAppBtn) {
-        exitAppBtn.addEventListener('click', () => {
-          window.AndroidBridge?.confirmExitApp?.();
-        });
       }
 
       window.sikarcisHandleBackPress = function () {
