@@ -1,0 +1,1128 @@
+<!DOCTYPE html>
+<html lang="id" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SI-KARCIS — Sistem Manajemen Inventaris &amp; Retribusi Karcis</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#eff6ff',
+              100: '#dbeafe',
+              500: '#3b82f6',
+              600: '#2563eb',
+              700: '#1d4ed8',
+              800: '#1e40af',
+              900: '#1e3a8a'
+            }
+          }
+        }
+      }
+    };
+  </script>
+  <link rel="stylesheet" href="./css/style.css" />
+  <style>
+    /* Tekstur halus latar belakang: gradasi Navy ke Slate + pola perforasi karcis */
+    .ticket-bg-pattern {
+      background-image:
+        radial-gradient(circle at 18% 20%, rgba(29, 78, 216, 0.22), transparent 42%),
+        radial-gradient(circle at 85% 80%, rgba(5, 150, 105, 0.14), transparent 45%),
+        repeating-linear-gradient(
+          -45deg,
+          rgba(255, 255, 255, 0.018) 0px,
+          rgba(255, 255, 255, 0.018) 1px,
+          transparent 1px,
+          transparent 18px
+        );
+    }
+    @keyframes floatSlow {
+      0%, 100% { transform: translateY(0px); }
+      50% { transform: translateY(-5px); }
+    }
+    .floating-ticket-card {
+      animation: floatSlow 6s ease-in-out infinite;
+    }
+  </style>
+</head>
+<body class="min-h-full pearl-theme bg-pearl-pattern text-slate-800 antialiased selection:bg-blue-100 selection:text-blue-900">
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col gap-2.5 max-w-sm w-[calc(100%-2rem)] pointer-events-none"></div>
+
+  <!-- Session Verification Overlay -->
+  <div id="auth-checking-banner" class="hidden fixed inset-0 z-40 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl border border-slate-200 px-6 py-5 flex items-center gap-4 max-w-sm w-full">
+      <div class="w-8 h-8 rounded-full border-3 border-blue-700 border-t-transparent animate-spin shrink-0"></div>
+      <div>
+        <p class="text-sm font-semibold text-slate-900">Memverifikasi sesi...</p>
+        <p class="text-xs text-slate-500 mt-0.5">Mengarahkan ke dashboard</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="min-h-screen grid grid-cols-1 lg:grid-cols-12">
+    <!-- ======================================================================
+         PANEL KIRI: VISUAL MOCKUP KARCIS & CLEAN 3-STEP CAROUSEL (SAAS-STYLE)
+         ====================================================================== -->
+    <section class="hidden lg:flex lg:col-span-7 relative overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 ticket-bg-pattern text-white flex-col justify-between p-12 xl:p-16">
+      <!-- Dekorasi Garis Perforasi Vertikal Halus -->
+      <div class="absolute inset-y-0 right-0 w-px border-r border-dashed border-slate-700/60 pointer-events-none"></div>
+
+      <!-- Bagian Atas: Logo Pemkab Malang + SI-KARCIS & Logo Dispora Tanpa Latar -->
+      <div class="relative z-10 flex items-start gap-3.5">
+        <img
+          src="./assets/logo-kab-malang.png"
+          alt="Logo Pemerintah Kabupaten Malang"
+          class="h-14 w-auto object-contain shrink-0 drop-shadow-sm select-none mt-0.5"
+        />
+        <div class="min-w-0">
+          <span class="text-xl font-extrabold tracking-tight text-white block leading-tight">SI-KARCIS</span>
+          <p class="text-xs text-slate-400 font-medium mt-0.5">Inventaris &amp; Retribusi</p>
+          <img
+            src="./assets/logo-dispora.png"
+            alt="Logo Dispora — Dinas Pemuda dan Olahraga"
+            class="h-9 w-auto object-contain mt-2 logo-dispora-dark select-none"
+          />
+        </div>
+      </div>
+
+      <!-- Bagian Tengah & Bawah: Copywriting Ringkas + Ilustrasi Karcis + Clean Carousel -->
+      <div class="relative z-10 my-auto max-w-xl space-y-8">
+        <!-- Headline (7 Kata) & 1 Kalimat Penjelas Singkat -->
+        <div class="space-y-3">
+          <h1 class="text-3xl xl:text-4xl font-extrabold tracking-tight text-white leading-tight">
+            Distribusi &amp; Rekapitulasi Karcis dalam Satu Pintu.
+          </h1>
+          <p class="text-slate-300 text-sm xl:text-base leading-relaxed">
+            Sistem terpadu untuk pengajuan nomor seri petugas, verifikasi admin, dan pelaporan retribusi secara real-time.
+          </p>
+        </div>
+
+        <!-- Ilustrasi UI Card Mengambang Menyerupai Potongan Karcis Resmi -->
+        <div class="floating-ticket-card relative rounded-2xl bg-slate-900/90 border border-slate-700/80 shadow-2xl overflow-hidden backdrop-blur-md">
+          <!-- Lekukan Perforasi Karcis Kiri & Kanan -->
+          <div class="absolute -left-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-slate-950 border border-slate-700/80"></div>
+          <div class="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-slate-900 border border-slate-700/80"></div>
+
+          <div class="p-5 sm:p-6">
+            <div class="flex items-center justify-between gap-3">
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+                  <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <div>
+                  <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">E-Voucher Batch Karcis Resmi</p>
+                  <p class="text-sm sm:text-base font-extrabold font-mono-seri text-white mt-0.5">
+                    Batch Seri #04501 &ndash; #04600 &bull; <span class="text-emerald-400">Status: Disetujui</span>
+                  </p>
+                </div>
+              </div>
+              <span class="hidden sm:inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                1 Bendel (100 Lbr)
+              </span>
+            </div>
+
+            <!-- Garis Putus-Putus Perforasi Karcis -->
+            <div class="my-4 border-t border-dashed border-slate-700/90"></div>
+
+            <!-- Baris Info Ringkas Karcis -->
+            <div class="grid grid-cols-3 gap-4 text-xs">
+              <div>
+                <span class="text-slate-400 block">Objek Retribusi</span>
+                <span class="font-bold text-slate-200">Kolam Renang &amp; PKL</span>
+              </div>
+              <div>
+                <span class="text-slate-400 block">Alokasi Seri</span>
+                <span class="font-mono-seri font-bold text-blue-300">Otomatis 5-Digit</span>
+              </div>
+              <div class="text-right">
+                <span class="text-slate-400 block">Rekonsiliasi Sisa</span>
+                <span class="font-bold text-emerald-400">Anti-Bentrok</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Clean Carousel (3 Slide Otomatis + 3 Poin Alur Kerja Berikon) -->
+        <div class="rounded-2xl bg-slate-900/55 border border-slate-800/90 p-5">
+          <div id="hero-carousel-slides" class="relative min-h-[68px]">
+            <!-- Slide 1 -->
+            <div data-carousel-slide="0" class="carousel-slide flex items-start gap-3.5 transition-opacity duration-300">
+              <div class="w-9 h-9 rounded-xl bg-blue-600/20 border border-blue-500/30 text-blue-400 flex items-center justify-center shrink-0 mt-0.5">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" />
+                </svg>
+              </div>
+              <div>
+                <div class="flex items-center gap-2">
+                  <span class="text-[11px] font-bold uppercase tracking-wider text-blue-400">Langkah 1</span>
+                  <span class="text-slate-600">&bull;</span>
+                  <h3 class="text-sm font-bold text-white">Ajukan Seri</h3>
+                </div>
+                <p class="text-xs sm:text-sm text-slate-300 mt-1 leading-relaxed">
+                  Petugas memesan batch karcis sesuai kebutuhan lokasi tugas dengan cepat dan praktis.
+                </p>
+              </div>
+            </div>
+
+            <!-- Slide 2 -->
+            <div data-carousel-slide="1" class="carousel-slide hidden flex items-start gap-3.5 transition-opacity duration-300">
+              <div class="w-9 h-9 rounded-xl bg-emerald-600/20 border border-emerald-500/30 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div>
+                <div class="flex items-center gap-2">
+                  <span class="text-[11px] font-bold uppercase tracking-wider text-emerald-400">Langkah 2</span>
+                  <span class="text-slate-600">&bull;</span>
+                  <h3 class="text-sm font-bold text-white">Verifikasi Cepat</h3>
+                </div>
+                <p class="text-xs sm:text-sm text-slate-300 mt-1 leading-relaxed">
+                  Admin menyetujui permohonan dan menerbitkan nomor seri dari gudang stok secara terpusat.
+                </p>
+              </div>
+            </div>
+
+            <!-- Slide 3 -->
+            <div data-carousel-slide="2" class="carousel-slide hidden flex items-start gap-3.5 transition-opacity duration-300">
+              <div class="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/30 text-amber-300 flex items-center justify-center shrink-0 mt-0.5">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              </div>
+              <div>
+                <div class="flex items-center gap-2">
+                  <span class="text-[11px] font-bold uppercase tracking-wider text-amber-300">Langkah 3</span>
+                  <span class="text-slate-600">&bull;</span>
+                  <h3 class="text-sm font-bold text-white">Rekap Otomatis</h3>
+                </div>
+                <p class="text-xs sm:text-sm text-slate-300 mt-1 leading-relaxed">
+                  Laporan pengembalian sisa nomor seri serta pemasukan dan pengeluaran karcis tercatat akurat.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <!-- 3 Titik Indikator (Pagination Dots) -->
+          <div class="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between">
+            <div class="flex items-center gap-2" role="tablist" aria-label="Slide fitur utama">
+              <button type="button" data-carousel-dot="0" aria-label="Slide 1: Ajukan Seri" class="w-6 h-1.5 rounded-full bg-blue-500 transition-all"></button>
+              <button type="button" data-carousel-dot="1" aria-label="Slide 2: Verifikasi Cepat" class="w-2 h-1.5 rounded-full bg-slate-700 hover:bg-slate-500 transition-all"></button>
+              <button type="button" data-carousel-dot="2" aria-label="Slide 3: Rekap Otomatis" class="w-2 h-1.5 rounded-full bg-slate-700 hover:bg-slate-500 transition-all"></button>
+            </div>
+            <span id="carousel-step-label" class="text-[11px] font-medium text-slate-400">1 / 3 &bull; Ajukan Seri</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer Ringkas -->
+      <div class="relative z-10 flex items-center justify-between text-xs text-slate-400 border-t border-slate-800/80 pt-4">
+        <span>&copy; 2026 SI-KARCIS</span>
+        <button
+          type="button"
+          id="btn-fill-admin-desktop"
+          class="inline-flex items-center gap-1.5 text-slate-300 hover:text-white font-semibold transition"
+          title="Isi otomatis akun Administrator bawaan"
+        >
+          <span>Isi Cepat Akun Admin</span>
+          <span class="text-blue-400">&rarr;</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- ======================================================================
+         PANEL KANAN: FORM LOGIN (DEFAULT) & PENDAFTARAN AKUN PETUGAS
+         ====================================================================== -->
+    <main class="lg:col-span-5 relative flex flex-col justify-center px-5 py-10 sm:px-10 md:px-14 lg:px-10 xl:px-12 bg-pearl-pattern">
+      <!-- Ikon Info Kecil di Sudut Kanan Atas (Menggantikan Banner Teknis Debug) -->
+      <div class="absolute top-4 right-4 flex items-center gap-2">
+        <button
+          type="button"
+          id="btn-fill-admin-mobile"
+          class="text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-slate-200/80 hover:bg-blue-50 text-slate-700 hover:text-blue-700 transition"
+          title="Isi otomatis email & kata sandi Admin"
+        >
+          Akun Admin
+        </button>
+        <div id="local-mode-banner" class="hidden relative group">
+          <button
+            type="button"
+            aria-label="Informasi status penyimpanan"
+            class="w-7 h-7 rounded-full bg-slate-200/70 hover:bg-slate-300/80 text-slate-500 hover:text-slate-800 flex items-center justify-center text-xs font-bold transition"
+          >
+            i
+          </button>
+          <div class="hidden group-hover:block absolute right-0 mt-2 w-60 rounded-xl bg-slate-900 text-white text-[11px] p-3 shadow-xl z-30 leading-relaxed">
+            Mode penyimpanan lokal aktif &amp; siap digunakan.
+          </div>
+        </div>
+      </div>
+
+      <div class="w-full max-w-md mx-auto">
+        <!-- Header Mobile Ringkas -->
+        <div class="lg:hidden flex items-start gap-3.5 mb-6">
+          <img
+            src="./assets/logo-kab-malang.png"
+            alt="Logo Pemerintah Kabupaten Malang"
+            class="h-12 w-auto object-contain shrink-0 select-none mt-0.5"
+          />
+          <div class="min-w-0">
+            <h2 class="text-lg font-extrabold text-slate-900 tracking-tight leading-tight">SI-KARCIS</h2>
+            <p class="text-xs text-slate-500 mt-0.5">Inventaris &amp; Retribusi</p>
+            <img
+              src="./assets/logo-dispora.png"
+              alt="Logo Dispora — Dinas Pemuda dan Olahraga"
+              class="h-7 w-auto object-contain mt-1.5 select-none"
+            />
+          </div>
+        </div>
+
+        <!-- Auth Card -->
+        <div class="bg-white rounded-2xl border border-slate-200/90 shadow-sm p-6 sm:p-8">
+          <!-- Tab Switcher: Masuk (Login) sebagai tampilan awal -->
+          <div class="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-xl mb-6">
+            <button
+              type="button"
+              id="tab-btn-login"
+              class="py-2 px-3 rounded-lg text-xs sm:text-sm font-bold transition bg-white text-slate-900 shadow-2xs"
+            >
+              Masuk (Login)
+            </button>
+            <button
+              type="button"
+              id="tab-btn-register"
+              class="py-2 px-3 rounded-lg text-xs sm:text-sm font-semibold transition text-slate-600 hover:text-slate-900"
+            >
+              Daftar Akun
+            </button>
+          </div>
+
+          <!-- Inline Status / Error Box -->
+          <div id="auth-alert-box" class="hidden mb-5 rounded-xl border px-4 py-3 text-xs sm:text-sm flex items-start gap-2.5">
+            <svg class="w-5 h-5 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div id="auth-alert-text" class="flex-1 leading-relaxed"></div>
+          </div>
+
+          <!-- ==============================================================
+               PANEL 1: LOGIN FORM (TAMPILAN AWAL YANG LEGA & BERSIH)
+               ============================================================== -->
+          <div id="panel-login">
+            <div class="mb-6">
+              <h2 class="text-xl font-bold text-slate-900 tracking-tight">Selamat Datang</h2>
+              <p class="text-xs sm:text-sm text-slate-500 mt-1">
+                Masuk dengan akun Admin atau akun Petugas yang telah disetujui.
+              </p>
+            </div>
+
+            <form id="login-form" class="space-y-4" novalidate>
+              <div>
+                <label for="login-email" class="block text-xs font-semibold text-slate-700 mb-1.5">Nama Lengkap atau Email</label>
+                <input
+                  id="login-email"
+                  type="text"
+                  required
+                  autocomplete="username"
+                  placeholder="Nama lengkap petugas atau email admin"
+                  class="w-full px-3.5 py-2.5 text-base sm:text-sm rounded-xl border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-700/20 focus:border-blue-700 transition"
+                />
+              </div>
+
+              <div>
+                <label for="login-password" class="block text-xs font-semibold text-slate-700 mb-1.5">Kata Sandi</label>
+                <div class="relative">
+                  <input
+                    id="login-password"
+                    type="password"
+                    required
+                    autocomplete="current-password"
+                    placeholder="Masukkan kata sandi"
+                    class="w-full pl-3.5 pr-11 py-2.5 text-base sm:text-sm rounded-xl border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-700/20 focus:border-blue-700 transition"
+                  />
+                  <button
+                    type="button"
+                    id="toggle-password-btn"
+                    aria-label="Tampilkan kata sandi"
+                    class="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600"
+                  >
+                    <svg id="eye-icon-open" class="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                    <svg id="eye-icon-closed" class="w-4.5 h-4.5 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                id="btn-login-submit"
+                class="w-full mt-2 inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-blue-700 hover:bg-blue-800 active:bg-blue-900 text-white font-semibold text-sm shadow-sm shadow-blue-700/20 disabled:opacity-60 transition min-h-[44px]"
+              >
+                <span id="login-btn-spinner" class="hidden w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                <span id="login-btn-label">Masuk ke Sistem</span>
+              </button>
+            </form>
+
+            <div class="mt-6 pt-5 border-t border-slate-100 text-center text-xs text-slate-500">
+              Petugas baru belum punya akun?
+              <button type="button" id="link-to-register" class="font-bold text-blue-700 hover:underline ml-1">
+                Daftar Akun &rarr;
+              </button>
+            </div>
+          </div>
+
+          <!-- ==============================================================
+               PANEL 2: USER REGISTRATION REQUEST FORM
+               ============================================================== -->
+          <div id="panel-register" class="hidden">
+            <div class="mb-5">
+              <h2 class="text-xl font-bold text-slate-900 tracking-tight">Daftar Akun Petugas</h2>
+              <p class="text-xs text-slate-500 mt-1">
+                Akun akan aktif setelah disetujui oleh Admin.
+              </p>
+            </div>
+
+            <form id="register-form" class="space-y-4" novalidate>
+              <div>
+                <label for="reg-nama" class="block text-xs font-semibold text-slate-700 mb-1.5">Nama Lengkap *</label>
+                <input
+                  id="reg-nama"
+                  type="text"
+                  required
+                  autocomplete="name"
+                  placeholder="Contoh: Budi Santoso"
+                  class="w-full px-3.5 py-2.5 text-base sm:text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-700/20 focus:border-blue-700 transition"
+                />
+              </div>
+
+              <div>
+                <label for="reg-unit" class="block text-xs font-semibold text-slate-700 mb-1.5">Unit / Lokasi Tugas *</label>
+                <input
+                  id="reg-unit"
+                  type="text"
+                  required
+                  placeholder="Contoh: Loket Kolam Renang"
+                  class="w-full px-3.5 py-2.5 text-base sm:text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-700/20 focus:border-blue-700 transition"
+                />
+              </div>
+
+              <div>
+                <label for="reg-password" class="block text-xs font-semibold text-slate-700 mb-1.5">Kata Sandi *</label>
+                <input
+                  id="reg-password"
+                  type="password"
+                  required
+                  minlength="6"
+                  autocomplete="new-password"
+                  placeholder="Minimal 6 karakter"
+                  class="w-full px-3.5 py-2.5 text-base sm:text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-700/20 focus:border-blue-700 transition"
+                />
+              </div>
+
+              <div>
+                <label for="reg-password-confirm" class="block text-xs font-semibold text-slate-700 mb-1.5">Ulangi Kata Sandi *</label>
+                <input
+                  id="reg-password-confirm"
+                  type="password"
+                  required
+                  minlength="6"
+                  autocomplete="new-password"
+                  placeholder="Ketik ulang kata sandi"
+                  class="w-full px-3.5 py-2.5 text-base sm:text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-700/20 focus:border-blue-700 transition"
+                />
+              </div>
+
+              <button
+                type="submit"
+                id="btn-register-submit"
+                class="w-full mt-2 inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm shadow-sm shadow-emerald-600/20 disabled:opacity-60 transition min-h-[44px]"
+              >
+                <span id="reg-btn-spinner" class="hidden w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                <span id="reg-btn-label">Daftar Akun</span>
+              </button>
+            </form>
+
+            <div class="mt-5 pt-4 border-t border-slate-100 text-center text-xs text-slate-500">
+              Sudah punya akun?
+              <button type="button" id="link-to-login" class="font-bold text-blue-700 hover:underline ml-1">
+                Masuk di sini
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script type="module">
+    import {
+      auth,
+      db,
+      isFirebaseConfigured,
+      DEFAULT_ADMIN_ACCOUNT,
+      isAdminEmail
+    } from './js/firebase-config.js';
+    import {
+      signInWithEmailAndPassword,
+      createUserWithEmailAndPassword,
+      onAuthStateChanged,
+      signOut
+    } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
+    import {
+      doc,
+      getDoc,
+      setDoc,
+      addDoc,
+      collection,
+      serverTimestamp
+    } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
+
+    const LOCAL_KEYS = {
+      USERS: 'sikarcis_local_users_v1',
+      SESSION: 'sikarcis_local_session_v1',
+      LOGS: 'sikarcis_local_logs_v1'
+    };
+
+    // ========================================================================
+    // CLEAN 3-SLIDE HERO CAROUSEL (AUTO-SLIDER + PAGINATION DOTS)
+    // ========================================================================
+    const slideNames = ['Ajukan Seri', 'Verifikasi Cepat', 'Rekap Otomatis'];
+    const slides = document.querySelectorAll('[data-carousel-slide]');
+    const dots = document.querySelectorAll('[data-carousel-dot]');
+    const stepLabel = document.getElementById('carousel-step-label');
+    let activeSlideIdx = 0;
+
+    function showCarouselSlide(idx) {
+      activeSlideIdx = idx;
+      slides.forEach((el, i) => {
+        el.classList.toggle('hidden', i !== idx);
+      });
+      dots.forEach((dot, i) => {
+        dot.className =
+          i === idx
+            ? 'w-6 h-1.5 rounded-full bg-blue-500 transition-all'
+            : 'w-2 h-1.5 rounded-full bg-slate-700 hover:bg-slate-500 transition-all';
+      });
+      if (stepLabel) {
+        stepLabel.textContent = `${idx + 1} / 3 • ${slideNames[idx] || ''}`;
+      }
+    }
+
+    dots.forEach((dot) => {
+      dot.addEventListener('click', () => {
+        const idx = parseInt(dot.getAttribute('data-carousel-dot') || '0', 10);
+        showCarouselSlide(idx);
+      });
+    });
+
+    if (slides.length > 0) {
+      setInterval(() => {
+        showCarouselSlide((activeSlideIdx + 1) % slides.length);
+      }, 4500);
+    }
+
+    // ========================================================================
+    // AUTHENTICATION & REGISTRATION LOGIC
+    // ========================================================================
+    const tabBtnLogin = document.getElementById('tab-btn-login');
+    const tabBtnRegister = document.getElementById('tab-btn-register');
+    const panelLogin = document.getElementById('panel-login');
+    const panelRegister = document.getElementById('panel-register');
+    const linkToRegister = document.getElementById('link-to-register');
+    const linkToLogin = document.getElementById('link-to-login');
+
+    const alertBox = document.getElementById('auth-alert-box');
+    const alertText = document.getElementById('auth-alert-text');
+    const toastContainer = document.getElementById('toast-container');
+    const authCheckingBanner = document.getElementById('auth-checking-banner');
+    const localModeBanner = document.getElementById('local-mode-banner');
+
+    const loginForm = document.getElementById('login-form');
+    const loginEmail = document.getElementById('login-email');
+    const loginPassword = document.getElementById('login-password');
+    const loginSubmitBtn = document.getElementById('btn-login-submit');
+    const loginSpinner = document.getElementById('login-btn-spinner');
+    const loginBtnLabel = document.getElementById('login-btn-label');
+
+    const registerForm = document.getElementById('register-form');
+    const regSubmitBtn = document.getElementById('btn-register-submit');
+    const regSpinner = document.getElementById('reg-btn-spinner');
+    const regBtnLabel = document.getElementById('reg-btn-label');
+
+    let isProcessingExplicitAuth = false;
+
+    function showToast(message, type = 'info') {
+      const styles = {
+        success: 'bg-emerald-600 text-white border-emerald-700',
+        error: 'bg-rose-600 text-white border-rose-700',
+        warning: 'bg-amber-500 text-white border-amber-600',
+        info: 'bg-slate-800 text-white border-slate-700'
+      };
+      const el = document.createElement('div');
+      el.className = `pointer-events-auto toast-enter flex items-start gap-2.5 px-4 py-3 rounded-xl border shadow-lg text-xs sm:text-sm font-medium ${styles[type] || styles.info}`;
+      el.innerHTML = `<span class="flex-1 leading-snug"></span><button type="button" class="opacity-80 hover:opacity-100 text-xs font-bold px-1">&times;</button>`;
+      el.querySelector('span').textContent = message;
+      el.querySelector('button').addEventListener('click', () => el.remove());
+      toastContainer.appendChild(el);
+      setTimeout(() => {
+        el.classList.remove('toast-enter');
+        el.classList.add('toast-exit');
+        setTimeout(() => el.remove(), 220);
+      }, 4000);
+    }
+
+    function showAlert(message, type = 'error') {
+      const palette = {
+        error: 'border-rose-200 bg-rose-50 text-rose-800',
+        warning: 'border-amber-300 bg-amber-50 text-amber-900',
+        success: 'border-emerald-200 bg-emerald-50 text-emerald-900'
+      };
+      alertBox.className = `mb-5 rounded-xl border px-4 py-3 text-xs sm:text-sm flex items-start gap-2.5 ${palette[type] || palette.error}`;
+      alertText.textContent = message;
+      alertBox.classList.remove('hidden');
+    }
+
+    function hideAlert() {
+      alertBox.classList.add('hidden');
+    }
+
+    function switchTab(tab) {
+      hideAlert();
+      const isLogin = tab === 'login';
+      panelLogin.classList.toggle('hidden', !isLogin);
+      panelRegister.classList.toggle('hidden', isLogin);
+
+      tabBtnLogin.className = isLogin
+        ? 'py-2 px-3 rounded-lg text-xs sm:text-sm font-bold transition bg-white text-slate-900 shadow-2xs'
+        : 'py-2 px-3 rounded-lg text-xs sm:text-sm font-semibold transition text-slate-600 hover:text-slate-900';
+
+      tabBtnRegister.className = !isLogin
+        ? 'py-2 px-3 rounded-lg text-xs sm:text-sm font-bold transition bg-white text-slate-900 shadow-2xs'
+        : 'py-2 px-3 rounded-lg text-xs sm:text-sm font-semibold transition text-slate-600 hover:text-slate-900';
+    }
+
+    tabBtnLogin.addEventListener('click', () => switchTab('login'));
+    tabBtnRegister.addEventListener('click', () => switchTab('register'));
+    linkToRegister.addEventListener('click', () => switchTab('register'));
+    linkToLogin.addEventListener('click', () => switchTab('login'));
+
+    function fillAdminCredentials() {
+      switchTab('login');
+      loginEmail.value = DEFAULT_ADMIN_ACCOUNT.email;
+      loginPassword.value = DEFAULT_ADMIN_ACCOUNT.password;
+      showToast('Akun Admin siap digunakan. Klik "Masuk ke Sistem".', 'info');
+    }
+
+    document.getElementById('btn-fill-admin-desktop')?.addEventListener('click', fillAdminCredentials);
+    document.getElementById('btn-fill-admin-mobile')?.addEventListener('click', fillAdminCredentials);
+
+    document.getElementById('toggle-password-btn')?.addEventListener('click', () => {
+      const isPwd = loginPassword.type === 'password';
+      loginPassword.type = isPwd ? 'text' : 'password';
+      document.getElementById('eye-icon-open').classList.toggle('hidden', isPwd);
+      document.getElementById('eye-icon-closed').classList.toggle('hidden', !isPwd);
+    });
+
+    function buildPetugasEmail(nama) {
+      const slug = String(nama || '')
+        .trim()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '.')
+        .replace(/^\.+|\.+$/g, '');
+      return `${slug || 'petugas'}@petugas.sikarcis.id`;
+    }
+
+    function resolveLoginEmail(rawInput) {
+      const clean = String(rawInput || '').trim().toLowerCase();
+      if (!clean) return '';
+      if (clean.includes('@')) return clean;
+      if (clean === 'admin' || clean === DEFAULT_ADMIN_ACCOUNT.nama.toLowerCase()) {
+        return DEFAULT_ADMIN_ACCOUNT.email.toLowerCase();
+      }
+      return buildPetugasEmail(clean);
+    }
+
+    function getLocalUsers() {
+      try {
+        const raw = localStorage.getItem(LOCAL_KEYS.USERS);
+        const list = raw ? JSON.parse(raw) : [];
+        const hasAdmin = list.some(
+          (u) => String(u.email || '').toLowerCase() === DEFAULT_ADMIN_ACCOUNT.email.toLowerCase()
+        );
+        if (!hasAdmin) {
+          list.unshift({
+            uid: 'admin_default_uid',
+            nama: DEFAULT_ADMIN_ACCOUNT.nama,
+            nip: DEFAULT_ADMIN_ACCOUNT.nip,
+            unitTugas: DEFAULT_ADMIN_ACCOUNT.unitTugas,
+            noHp: DEFAULT_ADMIN_ACCOUNT.noHp,
+            email: DEFAULT_ADMIN_ACCOUNT.email,
+            password: DEFAULT_ADMIN_ACCOUNT.password,
+            role: 'admin',
+            status: 'approved',
+            createdAt: new Date().toISOString()
+          });
+          localStorage.setItem(LOCAL_KEYS.USERS, JSON.stringify(list));
+        }
+        return list;
+      } catch {
+        return [];
+      }
+    }
+
+    function saveLocalUsers(list) {
+      localStorage.setItem(LOCAL_KEYS.USERS, JSON.stringify(list));
+    }
+
+    function appendLocalLog(aksi, detail, userEmail) {
+      try {
+        const raw = localStorage.getItem(LOCAL_KEYS.LOGS);
+        const list = raw ? JSON.parse(raw) : [];
+        list.unshift({
+          id: 'log_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+          tahun: String(new Date().getFullYear()),
+          waktu: new Date().toISOString(),
+          aksi,
+          detail,
+          userEmail
+        });
+        localStorage.setItem(LOCAL_KEYS.LOGS, JSON.stringify(list));
+      } catch {
+        // ignore
+      }
+    }
+
+    function isCloudFallbackError(err) {
+      const code = String(err?.code || '').toLowerCase();
+      const msg = String(err?.message || '').toLowerCase();
+      return (
+        code === 'auth/configuration-not-found' ||
+        code === 'auth/operation-not-allowed' ||
+        code === 'auth/admin-restricted-operation' ||
+        code === 'auth/network-request-failed' ||
+        code === 'permission-denied' ||
+        code === 'unavailable' ||
+        code === 'failed-precondition' ||
+        code === 'not-found' ||
+        msg.includes('cloud firestore api has not been used') ||
+        msg.includes('permission-denied') ||
+        msg.includes('missing or insufficient permissions') ||
+        msg.includes('configuration-not-found') ||
+        msg.includes('operation-not-allowed')
+      );
+    }
+
+    function performLocalLogin(rawIdentifier, email, password) {
+      const users = getLocalUsers();
+      const inputLower = rawIdentifier.toLowerCase();
+      const found = users.find((u) => {
+        const matchAccount =
+          String(u.email || '').toLowerCase() === inputLower ||
+          String(u.email || '').toLowerCase() === email ||
+          String(u.nama || '').trim().toLowerCase() === inputLower;
+        return matchAccount && u.password === password;
+      });
+      if (!found) {
+        throw new Error('Nama lengkap / email atau kata sandi tidak sesuai.');
+      }
+      if (found.status === 'pending') {
+        showAlert('Akun Anda sedang menunggu persetujuan Administrator.', 'warning');
+        showToast('Menunggu persetujuan Admin.', 'warning');
+        return false;
+      }
+      if (found.status === 'rejected') {
+        showAlert('Pengajuan akun Anda telah ditolak atau dinonaktifkan oleh Administrator.', 'error');
+        return false;
+      }
+      localStorage.setItem(LOCAL_KEYS.SESSION, JSON.stringify(found));
+      showToast(`Selamat datang, ${found.nama}!`, 'success');
+      window.location.replace('./dashboard.html');
+      return true;
+    }
+
+    function performLocalRegister(nama, unitTugas, internalEmail, password, assignedRole, assignedStatus) {
+      const users = getLocalUsers();
+      if (
+        users.some(
+          (u) =>
+            String(u.email || '').toLowerCase() === internalEmail ||
+            String(u.nama || '').trim().toLowerCase() === nama.toLowerCase()
+        )
+      ) {
+        throw new Error(
+          'Nama lengkap tersebut sudah terdaftar. Tambahkan pembeda pada nama (misal: Budi Santoso 2).'
+        );
+      }
+
+      const newUser = {
+        uid: 'user_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+        nama,
+        unitTugas,
+        email: internalEmail,
+        loginType: 'nama',
+        password,
+        role: assignedRole,
+        status: assignedStatus,
+        createdAt: new Date().toISOString()
+      };
+      users.push(newUser);
+      saveLocalUsers(users);
+      appendLocalLog('DAFTAR_AKUN', `Pendaftaran akun petugas: ${nama} (${unitTugas})`, internalEmail);
+
+      registerForm.reset();
+      switchTab('login');
+      showAlert(
+        `Pendaftaran berhasil dikirim. Gunakan nama "${nama}" untuk masuk setelah disetujui Admin.`,
+        'success'
+      );
+      showToast('Pendaftaran terkirim! Menunggu persetujuan Admin.', 'success');
+    }
+
+    getLocalUsers();
+    if (!isFirebaseConfigured()) {
+      localModeBanner.classList.remove('hidden');
+      const existingSession = localStorage.getItem(LOCAL_KEYS.SESSION);
+      if (existingSession) {
+        try {
+          const parsed = JSON.parse(existingSession);
+          const freshUser = getLocalUsers().find((u) => u.uid === parsed.uid);
+          if (freshUser && freshUser.status === 'approved') {
+            window.location.replace('./dashboard.html');
+          }
+        } catch {
+          localStorage.removeItem(LOCAL_KEYS.SESSION);
+        }
+      }
+    } else {
+      onAuthStateChanged(auth, async (user) => {
+        if (isProcessingExplicitAuth) return;
+        if (!user) {
+          const existingSession = localStorage.getItem(LOCAL_KEYS.SESSION);
+          if (existingSession) {
+            try {
+              const parsed = JSON.parse(existingSession);
+              const freshUser = getLocalUsers().find(
+                (u) => u.uid === parsed.uid || String(u.email || '').toLowerCase() === String(parsed.email || '').toLowerCase()
+              );
+              if (freshUser && (freshUser.role === 'admin' || freshUser.status === 'approved')) {
+                window.location.replace('./dashboard.html');
+              }
+            } catch {
+              localStorage.removeItem(LOCAL_KEYS.SESSION);
+            }
+          }
+          return;
+        }
+        try {
+          authCheckingBanner.classList.remove('hidden');
+          const snap = await getDoc(doc(db, 'karcis_users', user.uid));
+          if (snap.exists() && snap.data().status === 'approved') {
+            localStorage.setItem(LOCAL_KEYS.SESSION, JSON.stringify({ uid: user.uid, ...snap.data() }));
+            window.location.replace('./dashboard.html');
+          } else if (isAdminEmail(user.email)) {
+            const adminProfile = {
+              uid: user.uid,
+              nama: DEFAULT_ADMIN_ACCOUNT.nama,
+              nip: DEFAULT_ADMIN_ACCOUNT.nip,
+              unitTugas: DEFAULT_ADMIN_ACCOUNT.unitTugas,
+              noHp: DEFAULT_ADMIN_ACCOUNT.noHp,
+              email: user.email.toLowerCase(),
+              role: 'admin',
+              status: 'approved'
+            };
+            await setDoc(doc(db, 'karcis_users', user.uid), {
+              ...adminProfile,
+              createdAt: serverTimestamp()
+            }, { merge: true });
+            localStorage.setItem(LOCAL_KEYS.SESSION, JSON.stringify(adminProfile));
+            window.location.replace('./dashboard.html');
+          } else {
+            await signOut(auth);
+            authCheckingBanner.classList.add('hidden');
+          }
+        } catch (err) {
+          if (isCloudFallbackError(err) && isAdminEmail(user.email)) {
+            const adminProfile = {
+              uid: user.uid,
+              nama: DEFAULT_ADMIN_ACCOUNT.nama,
+              nip: DEFAULT_ADMIN_ACCOUNT.nip,
+              unitTugas: DEFAULT_ADMIN_ACCOUNT.unitTugas,
+              noHp: DEFAULT_ADMIN_ACCOUNT.noHp,
+              email: user.email.toLowerCase(),
+              role: 'admin',
+              status: 'approved'
+            };
+            localStorage.setItem(LOCAL_KEYS.SESSION, JSON.stringify(adminProfile));
+            window.location.replace('./dashboard.html');
+            return;
+          }
+          authCheckingBanner.classList.add('hidden');
+        }
+      });
+    }
+
+    loginForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      hideAlert();
+
+      const rawIdentifier = loginEmail.value.trim();
+      const password = loginPassword.value;
+
+      if (!rawIdentifier || !password) {
+        showAlert('Nama lengkap / email dan kata sandi wajib diisi.', 'warning');
+        return;
+      }
+
+      const email = resolveLoginEmail(rawIdentifier);
+
+      loginSubmitBtn.disabled = true;
+      loginSpinner.classList.remove('hidden');
+      loginBtnLabel.textContent = 'Memverifikasi...';
+
+      try {
+        if (!isFirebaseConfigured()) {
+          performLocalLogin(rawIdentifier, email, password);
+          return;
+        }
+
+        isProcessingExplicitAuth = true;
+        let userCredential;
+        try {
+          userCredential = await signInWithEmailAndPassword(auth, email, password);
+        } catch (authErr) {
+          if (
+            isAdminEmail(email) &&
+            password === DEFAULT_ADMIN_ACCOUNT.password &&
+            (authErr?.code === 'auth/user-not-found' || authErr?.code === 'auth/invalid-credential')
+          ) {
+            userCredential = await createUserWithEmailAndPassword(auth, email, password);
+          } else {
+            throw authErr;
+          }
+        }
+
+        const user = userCredential.user;
+        const userRef = doc(db, 'karcis_users', user.uid);
+        let profileData = null;
+
+        try {
+          const userSnap = await getDoc(userRef);
+          profileData = userSnap.exists() ? userSnap.data() : null;
+
+          if (!profileData && isAdminEmail(email)) {
+            profileData = {
+              uid: user.uid,
+              nama: DEFAULT_ADMIN_ACCOUNT.nama,
+              nip: DEFAULT_ADMIN_ACCOUNT.nip,
+              unitTugas: DEFAULT_ADMIN_ACCOUNT.unitTugas,
+              noHp: DEFAULT_ADMIN_ACCOUNT.noHp,
+              email,
+              role: 'admin',
+              status: 'approved',
+              createdAt: serverTimestamp()
+            };
+            await setDoc(userRef, profileData);
+          }
+        } catch (fsErr) {
+          if (isCloudFallbackError(fsErr)) {
+            if (isAdminEmail(email)) {
+              profileData = {
+                uid: user.uid,
+                nama: DEFAULT_ADMIN_ACCOUNT.nama,
+                nip: DEFAULT_ADMIN_ACCOUNT.nip,
+                unitTugas: DEFAULT_ADMIN_ACCOUNT.unitTugas,
+                noHp: DEFAULT_ADMIN_ACCOUNT.noHp,
+                email,
+                role: 'admin',
+                status: 'approved'
+              };
+            } else {
+              const localMatch = getLocalUsers().find(
+                (u) => String(u.email || '').toLowerCase() === email
+              );
+              if (localMatch) profileData = localMatch;
+            }
+          } else {
+            throw fsErr;
+          }
+        }
+
+        if (!profileData) {
+          await signOut(auth);
+          showAlert('Akun tidak ditemukan. Silakan daftar terlebih dahulu.', 'error');
+          return;
+        }
+
+        if (profileData.status === 'pending') {
+          await signOut(auth);
+          showAlert('Akun Anda masih menunggu persetujuan Administrator.', 'warning');
+          showToast('Menunggu persetujuan Admin.', 'warning');
+          return;
+        }
+
+        if (profileData.status === 'rejected') {
+          await signOut(auth);
+          showAlert('Akun Anda telah ditolak atau dinonaktifkan oleh Administrator.', 'error');
+          return;
+        }
+
+        localStorage.setItem(
+          LOCAL_KEYS.SESSION,
+          JSON.stringify({
+            uid: user.uid,
+            nama: profileData.nama || DEFAULT_ADMIN_ACCOUNT.nama,
+            nip: profileData.nip || '',
+            unitTugas: profileData.unitTugas || '',
+            noHp: profileData.noHp || '',
+            email: profileData.email || email,
+            role: profileData.role || 'user',
+            status: profileData.status || 'approved'
+          })
+        );
+        showToast(`Selamat datang, ${profileData.nama || user.email}.`, 'success');
+        window.location.replace('./dashboard.html');
+      } catch (err) {
+        if (isCloudFallbackError(err)) {
+          try {
+            performLocalLogin(rawIdentifier, email, password);
+            return;
+          } catch (localErr) {
+            const fallbackMsg = localErr?.message || 'Nama lengkap / email atau kata sandi salah.';
+            showAlert(fallbackMsg, 'error');
+            showToast(fallbackMsg, 'error');
+            return;
+          }
+        }
+        const msg = err?.code
+          ? (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found'
+              ? 'Nama lengkap / email atau kata sandi salah.'
+              : `Gagal masuk (${err.code}).`)
+          : (err?.message || 'Gagal masuk ke sistem.');
+        showAlert(msg, 'error');
+        showToast(msg, 'error');
+      } finally {
+        isProcessingExplicitAuth = false;
+        loginSubmitBtn.disabled = false;
+        loginSpinner.classList.add('hidden');
+        loginBtnLabel.textContent = 'Masuk ke Sistem';
+      }
+    });
+
+    registerForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      hideAlert();
+
+      const nama = document.getElementById('reg-nama').value.trim();
+      const unitTugas = document.getElementById('reg-unit').value.trim();
+      const password = document.getElementById('reg-password').value;
+      const passwordConfirm = document.getElementById('reg-password-confirm').value;
+
+      if (!nama || !unitTugas || !password || !passwordConfirm) {
+        showAlert('Harap lengkapi seluruh kolom pendaftaran.', 'warning');
+        return;
+      }
+
+      if (!/[a-zA-Z0-9]/.test(nama)) {
+        showAlert('Masukkan nama lengkap yang valid.', 'warning');
+        return;
+      }
+
+      if (password.length < 6) {
+        showAlert('Kata sandi minimal 6 karakter.', 'warning');
+        return;
+      }
+
+      if (password !== passwordConfirm) {
+        showAlert('Konfirmasi kata sandi tidak cocok.', 'warning');
+        return;
+      }
+
+      const internalEmail = buildPetugasEmail(nama);
+      if (nama.toLowerCase() === 'admin' || isAdminEmail(internalEmail)) {
+        showAlert('Nama tersebut tidak dapat digunakan untuk pendaftaran petugas.', 'warning');
+        return;
+      }
+
+      regSubmitBtn.disabled = true;
+      regSpinner.classList.remove('hidden');
+      regBtnLabel.textContent = 'Mendaftarkan...';
+
+      try {
+        const assignedRole = 'user';
+        const assignedStatus = 'pending';
+
+        if (!isFirebaseConfigured()) {
+          performLocalRegister(nama, unitTugas, internalEmail, password, assignedRole, assignedStatus);
+          return;
+        }
+
+        isProcessingExplicitAuth = true;
+        const cred = await createUserWithEmailAndPassword(auth, internalEmail, password);
+        const uid = cred.user.uid;
+
+        await setDoc(doc(db, 'karcis_users', uid), {
+          uid,
+          nama,
+          unitTugas,
+          email: internalEmail,
+          loginType: 'nama',
+          role: assignedRole,
+          status: assignedStatus,
+          createdAt: serverTimestamp()
+        });
+
+        await addDoc(collection(db, 'karcis_logs'), {
+          tahun: String(new Date().getFullYear()),
+          waktu: serverTimestamp(),
+          aksi: 'DAFTAR_AKUN',
+          detail: `Pendaftaran akun petugas: ${nama} (${unitTugas})`,
+          userEmail: internalEmail
+        });
+
+        await signOut(auth);
+        registerForm.reset();
+        switchTab('login');
+        showAlert(
+          `Pendaftaran berhasil dikirim. Gunakan nama "${nama}" untuk masuk setelah disetujui Admin.`,
+          'success'
+        );
+        showToast('Pendaftaran terkirim!', 'success');
+      } catch (err) {
+        if (isCloudFallbackError(err)) {
+          try {
+            performLocalRegister(nama, unitTugas, internalEmail, password, 'user', 'pending');
+            return;
+          } catch (localErr) {
+            const lMsg = localErr?.message || 'Gagal mengirim pendaftaran.';
+            showAlert(lMsg, 'error');
+            showToast(lMsg, 'error');
+            return;
+          }
+        }
+        const msg = err?.code === 'auth/email-already-in-use'
+          ? 'Nama lengkap tersebut sudah terdaftar. Tambahkan pembeda pada nama (misal: Budi Santoso 2).'
+          : (err?.message || 'Gagal mengirim pendaftaran.');
+        showAlert(msg, 'error');
+        showToast(msg, 'error');
+      } finally {
+        isProcessingExplicitAuth = false;
+        regSubmitBtn.disabled = false;
+        regSpinner.classList.add('hidden');
+        regBtnLabel.textContent = 'Daftar Akun';
+      }
+    });
+  </script>
+</body>
+</html>

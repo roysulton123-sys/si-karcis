@@ -1,0 +1,1946 @@
+<!DOCTYPE html>
+<html lang="id" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard — SI-KARCIS | Manajemen Inventaris, Permintaan Seri &amp; Retribusi</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#eff6ff',
+              100: '#dbeafe',
+              500: '#3b82f6',
+              600: '#2563eb',
+              700: '#1d4ed8',
+              800: '#1e40af',
+              900: '#1e3a8a'
+            }
+          }
+        }
+      }
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <link rel="stylesheet" href="./css/style.css" />
+</head>
+<body class="h-full pearl-theme bg-pearl-pattern text-slate-800 antialiased selection:bg-blue-100 selection:text-blue-900 overflow-x-hidden">
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="no-print fixed top-4 right-4 z-[70] flex flex-col gap-2.5 max-w-sm w-[calc(100%-2rem)] pointer-events-none"></div>
+
+  <!-- Auth Guard Overlay -->
+  <div id="auth-guard-screen" class="no-print fixed inset-0 z-[60] bg-slate-900 flex flex-col items-center justify-center p-6 text-white">
+    <img src="./assets/logo-kab-malang.png" alt="Logo Pemerintah Kabupaten Malang" class="h-16 w-auto object-contain mb-4 animate-pulse drop-shadow-sm select-none" />
+    <div class="flex items-center gap-3">
+      <div class="w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin"></div>
+      <p class="text-sm font-semibold tracking-wide text-slate-200">Memverifikasi Sesi &amp; Hak Akses Pengguna...</p>
+    </div>
+  </div>
+
+  <!-- Main Application Shell -->
+  <div id="app-shell" class="min-h-screen flex bg-pearl-pattern">
+    <!-- Mobile Sidebar Backdrop -->
+    <div id="mobile-sidebar-backdrop" class="no-print fixed inset-0 z-30 bg-slate-900/60 backdrop-blur-xs hidden lg:hidden transition-opacity"></div>
+
+    <!-- Left Navigation Sidebar -->
+    <aside
+      id="sidebar"
+      class="no-print fixed inset-y-0 left-0 z-40 w-72 bg-slate-900 text-slate-300 flex flex-col border-r border-slate-800 transform -translate-x-full lg:translate-x-0 lg:static lg:inset-auto lg:shrink-0 transition-transform duration-200 ease-in-out"
+    >
+      <!-- Brand Header -->
+      <div class="px-5 pt-4 pb-1 flex items-start justify-between gap-2 shrink-0">
+        <div class="flex items-start gap-3 min-w-0">
+          <img
+            src="./assets/logo-kab-malang.png"
+            alt="Logo Pemerintah Kabupaten Malang"
+            class="h-12 w-auto object-contain shrink-0 drop-shadow-sm select-none mt-0.5"
+          />
+          <div class="min-w-0">
+            <div class="flex items-center gap-2">
+              <span class="text-base font-extrabold tracking-tight text-white">SI-KARCIS</span>
+              <span id="sidebar-role-badge" class="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">ADMIN</span>
+            </div>
+            <p class="text-[11px] text-slate-400 truncate mt-0.5">Inventaris &amp; Retribusi</p>
+          </div>
+        </div>
+        <button
+          type="button"
+          id="btn-close-sidebar"
+          aria-label="Tutup menu navigasi"
+          class="lg:hidden p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition shrink-0"
+        >
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <!-- Logo Dispora Tanpa Latar (Tengah antara Inventaris & Retribusi dan Menu Utama) -->
+      <div class="px-5 pt-3.5 pb-2.5 flex items-center justify-center border-b border-slate-800/90 shrink-0">
+        <img
+          src="./assets/logo-dispora.png"
+          alt="Logo Dispora — Dinas Pemuda dan Olahraga"
+          class="h-8 w-auto object-contain logo-dispora-dark select-none"
+        />
+      </div>
+
+      <!-- Navigation Links -->
+      <div class="flex-1 overflow-y-auto sidebar-scroll px-3.5 pt-2.5 pb-5 space-y-6">
+        <!-- ADMIN NAVIGATION MENU -->
+        <div id="admin-nav-group">
+          <p class="px-3 mb-2 text-xs font-medium text-slate-400">Menu Utama</p>
+          <nav class="space-y-1" aria-label="Menu Navigasi Admin">
+            <button
+              type="button"
+              data-nav="dashboard"
+              class="nav-item w-full flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition bg-blue-700 text-white shadow-sm"
+            >
+              <span class="flex items-center gap-3">
+                <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                </svg>
+                <span>Dashboard</span>
+              </span>
+              <span id="nav-badge-lowstock" class="hidden px-2 py-0.5 text-[11px] font-bold rounded-full bg-amber-500 text-slate-950">0</span>
+            </button>
+
+            <button
+              type="button"
+              data-nav="distribusi"
+              class="nav-item w-full flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800/80 transition"
+            >
+              <span class="flex items-center gap-3">
+                <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                </svg>
+                <span>Permintaan &amp; Pengeluaran</span>
+              </span>
+              <span id="nav-badge-requests" class="hidden px-2 py-0.5 text-[11px] font-bold rounded-full bg-rose-500 text-white">0</span>
+            </button>
+
+            <button
+              type="button"
+              data-nav="stok"
+              class="nav-item w-full flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800/80 transition"
+            >
+              <span class="flex items-center gap-3">
+                <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                </svg>
+                <span>Stok Karcis</span>
+              </span>
+            </button>
+
+            <button
+              type="button"
+              data-nav="fasilitas"
+              class="nav-item w-full flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800/80 transition"
+            >
+              <span class="flex items-center gap-3">
+                <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                </svg>
+                <span>Fasilitas &amp; Tarif</span>
+              </span>
+            </button>
+
+            <button
+              type="button"
+              data-nav="users"
+              class="nav-item w-full flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800/80 transition"
+            >
+              <span class="flex items-center gap-3">
+                <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                <span>Akun Petugas</span>
+              </span>
+              <span id="nav-badge-pending-users" class="hidden px-2 py-0.5 text-[11px] font-bold rounded-full bg-amber-500 text-slate-950">0</span>
+            </button>
+
+            <button
+              type="button"
+              data-nav="laporan"
+              class="nav-item w-full flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800/80 transition"
+            >
+              <span class="flex items-center gap-3">
+                <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <span>Laporan &amp; Cetak</span>
+              </span>
+            </button>
+          </nav>
+        </div>
+
+        <!-- USER / PETUGAS NAVIGATION MENU (Shown when role === 'user') -->
+        <div id="user-nav-group" class="hidden">
+          <p class="px-3 mb-2 text-xs font-medium text-slate-400">Menu Petugas</p>
+          <nav class="space-y-1" aria-label="Menu Navigasi Petugas">
+            <button
+              type="button"
+              data-nav="portal-user"
+              class="nav-item w-full flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition bg-blue-700 text-white shadow-sm"
+            >
+              <span class="flex items-center gap-3">
+                <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" />
+                </svg>
+                <span>Permintaan &amp; Retur Karcis</span>
+              </span>
+            </button>
+          </nav>
+        </div>
+
+        <!-- Audit Trail Section (Admin Only) -->
+        <div id="admin-audit-group" class="pt-2 border-t border-slate-800/80">
+          <p class="px-3 mb-2 text-xs font-medium text-slate-400">Riwayat</p>
+          <button
+            type="button"
+            id="btn-open-audit-modal"
+            class="w-full flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800/80 transition"
+          >
+            <span class="flex items-center gap-3">
+              <svg class="w-5 h-5 shrink-0 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span>Riwayat Aktivitas</span>
+            </span>
+            <span id="sidebar-logs-count" class="text-[11px] font-mono-seri px-2 py-0.5 rounded bg-slate-800 text-slate-400">0</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Sidebar Footer -->
+      <div class="p-4 border-t border-slate-800/90 bg-slate-950/40 shrink-0">
+        <div class="flex items-center justify-between text-xs">
+          <div class="flex items-center gap-2">
+            <span id="firestore-status-dot" class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span id="firestore-status-text" class="font-medium text-slate-300">Sinkronisasi Aktif</span>
+          </div>
+          <span class="text-[11px] font-mono-seri text-slate-500">1 Bdl = 100 Lbr</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Column -->
+    <div id="main-wrapper" class="flex-1 flex flex-col min-w-0">
+      <!-- Topbar -->
+      <header class="no-print sticky top-0 z-20 pearl-topbar backdrop-blur-md border-b border-slate-200/90 px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3 shrink-0">
+        <div class="flex items-center gap-3 min-w-0">
+          <button
+            type="button"
+            id="btn-open-sidebar"
+            aria-label="Buka menu navigasi"
+            class="lg:hidden p-2 -ml-1 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition"
+          >
+            <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+          <div class="min-w-0">
+            <h1 id="topbar-title" class="text-base sm:text-lg font-bold text-slate-900 truncate">Dashboard &amp; Analitik</h1>
+            <p id="topbar-subtitle" class="hidden sm:block text-xs text-slate-500 truncate">Ringkasan stok gudang, distribusi seri, dan realisasi retribusi</p>
+          </div>
+        </div>
+
+        <!-- Topbar Right Controls -->
+        <div class="flex items-center gap-2 sm:gap-3 shrink-0">
+          <!-- Tahun Anggaran Selector -->
+          <div class="flex items-center gap-1.5 bg-slate-100/90 border border-slate-200/90 rounded-xl px-2.5 py-1.5">
+            <svg class="w-4 h-4 text-blue-700 shrink-0 hidden sm:block" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            <label for="select-tahun-anggaran" class="text-xs font-semibold text-slate-600 hidden md:inline">Tahun:</label>
+            <select
+              id="select-tahun-anggaran"
+              aria-label="Pilih Tahun Anggaran"
+              class="bg-transparent text-xs sm:text-sm font-bold text-slate-900 focus:outline-none cursor-pointer pr-1"
+            >
+              <option value="2024">TA 2024</option>
+              <option value="2025">TA 2025</option>
+              <option value="2026" selected>TA 2026</option>
+              <option value="2027">TA 2027</option>
+              <option value="2028">TA 2028</option>
+            </select>
+          </div>
+
+          <!-- Low Stock Indicator Button (Admin Only) -->
+          <button
+            type="button"
+            id="btn-topbar-lowstock"
+            title="Peringatan Stok Menipis"
+            class="relative p-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition"
+          >
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+            </svg>
+            <span id="topbar-lowstock-badge" class="hidden absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-600 text-white text-[10px] font-bold flex items-center justify-center">0</span>
+          </button>
+
+          <!-- User Profile & Logout -->
+          <div class="flex items-center gap-2 pl-1 sm:pl-2 border-l border-slate-200">
+            <div id="user-avatar-initial" class="w-8 h-8 rounded-xl bg-blue-700 text-white text-xs font-bold flex items-center justify-center shrink-0">
+              A
+            </div>
+            <div class="hidden xl:block text-left max-w-[170px]">
+              <p id="user-name-display" class="text-xs font-bold text-slate-800 truncate">Memuat...</p>
+              <p id="user-role-display" class="text-[10px] text-emerald-600 font-semibold truncate">Administrator</p>
+            </div>
+            <button
+              type="button"
+              id="btn-logout"
+              title="Keluar dari SI-KARCIS"
+              class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200/80 transition"
+            >
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
+              <span class="hidden sm:inline">Keluar</span>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Workspace Content -->
+      <main id="main-content" class="flex-1 p-4 sm:p-6 lg:p-8 max-w-[1600px] w-full mx-auto">
+        <!-- Initial Skeleton Loader -->
+        <div id="initial-skeleton" class="no-print space-y-6">
+          <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+            <div class="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
+              <div class="h-4 w-32 rounded skeleton-shimmer"></div>
+              <div class="h-8 w-44 rounded skeleton-shimmer"></div>
+              <div class="h-3 w-36 rounded skeleton-shimmer"></div>
+            </div>
+            <div class="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
+              <div class="h-4 w-36 rounded skeleton-shimmer"></div>
+              <div class="h-8 w-40 rounded skeleton-shimmer"></div>
+              <div class="h-3 w-48 rounded skeleton-shimmer"></div>
+            </div>
+            <div class="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
+              <div class="h-4 w-40 rounded skeleton-shimmer"></div>
+              <div class="h-8 w-48 rounded skeleton-shimmer"></div>
+              <div class="h-3 w-44 rounded skeleton-shimmer"></div>
+            </div>
+            <div class="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
+              <div class="h-4 w-32 rounded skeleton-shimmer"></div>
+              <div class="h-8 w-28 rounded skeleton-shimmer"></div>
+              <div class="h-3 w-40 rounded skeleton-shimmer"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SPA Views Wrapper -->
+        <div id="views-container" class="hidden">
+          <!-- ================================================================
+               VIEW 1: DASHBOARD & ANALITIK (ADMIN)
+               ================================================================ -->
+          <section id="view-dashboard" class="view-section space-y-6 view-enter">
+            <!-- Quick Notification Strip for Pending User Registrations or Ticket Requests -->
+            <div id="admin-action-alerts" class="hidden grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+
+            <!-- Low Stock Warning Banner / Panel -->
+            <div id="low-stock-panel" class="rounded-2xl border p-4 sm:p-5 transition-all"></div>
+
+            <!-- 4 Main KPI Cards -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 sm:gap-5">
+              <div class="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5 flex flex-col justify-between">
+                <div class="flex items-start justify-between gap-3">
+                  <div>
+                    <p class="text-xs font-medium text-slate-500">Total Stok Gudang</p>
+                    <h3 id="kpi-stok-utama" class="text-xl sm:text-2xl font-bold text-slate-800 mt-1.5 tabular-nums">0 Bendel 0 Lbr</h3>
+                  </div>
+                  <div class="w-11 h-11 rounded-xl bg-blue-50 text-blue-700 border border-blue-100 flex items-center justify-center shrink-0">
+                    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                    </svg>
+                  </div>
+                </div>
+                <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+                  <span id="kpi-stok-sub" class="text-slate-600 font-medium tabular-nums">0 Lembar tersedia</span>
+                  <button type="button" data-jump-nav="stok" class="text-blue-700 font-semibold hover:underline">Kelola Stok &rarr;</button>
+                </div>
+              </div>
+
+              <div class="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5 flex flex-col justify-between">
+                <div class="flex items-start justify-between gap-3">
+                  <div>
+                    <p class="text-xs font-medium text-slate-500">Karcis Terpakai (<span class="kpi-year-label">2026</span>)</p>
+                    <h3 id="kpi-terjual-utama" class="text-xl sm:text-2xl font-bold text-slate-800 mt-1.5 tabular-nums">0 Lembar</h3>
+                  </div>
+                  <div class="w-11 h-11 rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-100 flex items-center justify-center shrink-0">
+                    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" />
+                    </svg>
+                  </div>
+                </div>
+                <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+                  <span id="kpi-terjual-sub" class="text-slate-600 font-medium tabular-nums">0 Bdl 0 Lbr • Retur: 0</span>
+                  <button type="button" data-jump-nav="distribusi" class="text-blue-700 font-semibold hover:underline">Pengeluaran &rarr;</button>
+                </div>
+              </div>
+
+              <div class="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5 flex flex-col justify-between">
+                <div class="flex items-start justify-between gap-3">
+                  <div>
+                    <p class="text-xs font-medium text-slate-500">Total Pendapatan</p>
+                    <h3 id="kpi-pendapatan-utama" class="text-xl sm:text-2xl font-bold text-emerald-600 mt-1.5 tabular-nums">Rp 0</h3>
+                  </div>
+                  <div class="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100 flex items-center justify-center shrink-0">
+                    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                </div>
+                <div class="mt-3 pt-2.5 border-t border-slate-100 grid grid-cols-2 gap-2 text-[11px]">
+                  <div class="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200/70 truncate">
+                    <span class="block text-[10px] text-emerald-600 font-medium">Lunas</span>
+                    <span id="kpi-pendapatan-lunas" class="font-semibold tabular-nums">Rp 0</span>
+                  </div>
+                  <div class="px-2.5 py-1 rounded-lg bg-amber-50 text-amber-900 border border-amber-200/70 truncate">
+                    <span class="block text-[10px] text-amber-700 font-medium">Belum Setor</span>
+                    <span id="kpi-pendapatan-belum" class="font-semibold tabular-nums">Rp 0</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5 flex flex-col justify-between">
+                <div class="flex items-start justify-between gap-3">
+                  <div>
+                    <p class="text-xs font-medium text-slate-500">Stok Menipis</p>
+                    <h3 id="kpi-lowstock-utama" class="text-xl sm:text-2xl font-bold text-slate-800 mt-1.5 tabular-nums">0 Fasilitas</h3>
+                  </div>
+                  <div id="kpi-lowstock-icon" class="w-11 h-11 rounded-xl bg-amber-50 text-amber-600 border border-amber-100 flex items-center justify-center shrink-0">
+                    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                  </div>
+                </div>
+                <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+                  <span id="kpi-lowstock-sub" class="text-slate-600 font-medium">Batas stok aman</span>
+                  <button type="button" data-jump-nav="fasilitas" class="text-blue-700 font-semibold hover:underline">Atur Batas &rarr;</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Interactive Charts Grid -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              <div class="lg:col-span-7 bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5 sm:p-6 flex flex-col">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-5">
+                  <div>
+                    <h2 class="text-base font-bold text-slate-800">Grafik Bulanan (<span class="kpi-year-label">2026</span>)</h2>
+                    <p class="text-xs text-slate-500 mt-0.5">Jumlah karcis terpakai dan pendapatan per bulan</p>
+                  </div>
+                  <div class="flex items-center gap-3 text-xs font-medium">
+                    <span class="inline-flex items-center gap-1.5 text-slate-600">
+                      <span class="w-3 h-3 rounded-xs bg-blue-700 inline-block"></span> Karcis
+                    </span>
+                    <span class="inline-flex items-center gap-1.5 text-slate-600">
+                      <span class="w-3 h-3 rounded-full bg-emerald-600 inline-block"></span> Pendapatan
+                    </span>
+                  </div>
+                </div>
+                <div class="relative h-64 sm:h-72 lg:h-80 w-full">
+                  <canvas id="chart-monthly-trend"></canvas>
+                </div>
+              </div>
+
+              <div class="lg:col-span-5 bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5 sm:p-6 flex flex-col">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+                  <div>
+                    <h2 class="text-base font-bold text-slate-800">Per Jenis Fasilitas</h2>
+                    <p class="text-xs text-slate-500 mt-0.5">Porsi pemasukan dan jumlah karcis</p>
+                  </div>
+                  <div class="inline-flex rounded-xl bg-slate-100 p-1 text-xs font-semibold self-start">
+                    <button type="button" id="btn-chart-mode-doughnut" class="px-2.5 py-1 rounded-lg bg-white text-slate-800 shadow-2xs transition">
+                      Rupiah
+                    </button>
+                    <button type="button" id="btn-chart-mode-bar" class="px-2.5 py-1 rounded-lg text-slate-600 hover:text-slate-900 transition">
+                      Lembar
+                    </button>
+                  </div>
+                </div>
+                <div class="relative h-56 sm:h-60 w-full">
+                  <canvas id="chart-facility-composition"></canvas>
+                </div>
+                <div id="facility-breakdown-list" class="mt-4 pt-3 border-t border-slate-100 space-y-2 max-h-36 overflow-y-auto text-xs"></div>
+              </div>
+            </div>
+
+            <!-- Audit Logs Preview -->
+            <div class="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5 sm:p-6">
+              <div class="flex items-center justify-between gap-4 mb-4">
+                <div>
+                  <h2 class="text-base font-bold text-slate-800">Aktivitas Terbaru</h2>
+                  <p class="text-xs text-slate-500 mt-0.5">Catatan terbaru transaksi dan persetujuan</p>
+                </div>
+                <button
+                  type="button"
+                  id="btn-dashboard-all-logs"
+                  class="px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition"
+                >
+                  Lihat Semua
+                </button>
+              </div>
+              <div id="dashboard-logs-list" class="divide-y divide-slate-100 text-xs"></div>
+            </div>
+          </section>
+
+          <!-- ================================================================
+               VIEW 2: PERMINTAAN & PENGELUARAN KARCIS (ADMIN)
+               ================================================================ -->
+          <section id="view-distribusi" class="view-section hidden space-y-6 view-enter">
+            <!-- Panel Antrean Permintaan Karcis dari Petugas -->
+            <div class="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5 sm:p-6">
+              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 mb-4 border-b border-slate-100">
+                <div class="flex items-center gap-3">
+                  <div class="w-10 h-10 rounded-xl bg-blue-50 text-blue-700 border border-blue-100 flex items-center justify-center shrink-0">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                    </svg>
+                  </div>
+                  <div>
+                    <div class="flex items-center gap-2">
+                      <h2 class="text-base sm:text-lg font-bold text-slate-800">Permintaan Karcis Petugas</h2>
+                      <span id="admin-req-pending-pill" class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200">0 Menunggu</span>
+                    </div>
+                    <p class="text-xs text-slate-500 mt-0.5">Setujui atau tolak pengajuan karcis dari petugas</p>
+                  </div>
+                </div>
+
+                <select
+                  id="filter-admin-req-status"
+                  class="px-3 py-2 text-xs sm:text-sm rounded-xl border border-slate-200 bg-slate-50/70 font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-700/15"
+                >
+                  <option value="ALL">Semua Status</option>
+                  <option value="Menunggu">Menunggu</option>
+                  <option value="Disetujui">Disetujui</option>
+                  <option value="Ditolak">Ditolak</option>
+                </select>
+              </div>
+
+              <div class="hidden md:block overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                  <thead>
+                    <tr class="border-b border-slate-200 text-xs font-semibold text-slate-500 bg-slate-50/70">
+                      <th class="py-3 px-3.5">Tanggal</th>
+                      <th class="py-3 px-3.5">Petugas &amp; Lokasi</th>
+                      <th class="py-3 px-3.5">Fasilitas</th>
+                      <th class="py-3 px-3.5">Jumlah</th>
+                      <th class="py-3 px-3.5">Seri / Catatan</th>
+                      <th class="py-3 px-3.5 text-center">Status</th>
+                      <th class="py-3 px-3.5 text-right">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody id="admin-requests-table-body" class="divide-y divide-slate-100 text-xs sm:text-sm"></tbody>
+                </table>
+              </div>
+              <div id="admin-requests-mobile-cards" class="md:hidden space-y-3"></div>
+            </div>
+
+            <!-- Form Pengeluaran Karcis Langsung -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              <div class="lg:col-span-8 bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5 sm:p-6">
+                <div class="flex items-center justify-between gap-3 pb-4 mb-5 border-b border-slate-100">
+                  <div>
+                    <h2 class="text-base sm:text-lg font-bold text-slate-800">Keluarkan Karcis ke Petugas</h2>
+                    <p class="text-xs text-slate-500 mt-0.5">Nomor seri otomatis terisi dari sisa stok yang dipilih</p>
+                  </div>
+                  <span class="hidden sm:inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-100">
+                    TA <span class="kpi-year-label ml-1">2026</span>
+                  </span>
+                </div>
+
+                <form id="form-distribusi" class="space-y-4" novalidate>
+                  <datalist id="datalist-petugas"></datalist>
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label for="dist-tanggal" class="block text-xs font-medium text-slate-600 mb-1.5">Tanggal</label>
+                      <input
+                        id="dist-tanggal"
+                        type="date"
+                        required
+                        class="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-700/15 focus:border-blue-600 transition"
+                      />
+                    </div>
+                    <div>
+                      <label for="dist-penerima" class="block text-xs font-medium text-slate-600 mb-1.5">Nama Petugas</label>
+                      <input
+                        id="dist-penerima"
+                        type="text"
+                        list="datalist-petugas"
+                        required
+                        placeholder="Pilih atau ketik nama petugas"
+                        class="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-700/15 focus:border-blue-600 transition"
+                      />
+                    </div>
+                  </div>
+
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label for="dist-facility" class="block text-xs font-medium text-slate-600 mb-1.5">Jenis Fasilitas</label>
+                      <select
+                        id="dist-facility"
+                        required
+                        class="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-700/15 focus:border-blue-600 transition"
+                      >
+                        <option value="">-- Pilih Fasilitas --</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label for="dist-stock" class="block text-xs font-medium text-slate-600 mb-1.5">Pilih Stok Karcis</label>
+                      <select
+                        id="dist-stock"
+                        required
+                        class="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white font-mono-seri focus:outline-none focus:ring-2 focus:ring-blue-700/15 focus:border-blue-600 transition"
+                      >
+                        <option value="">-- Pilih Fasilitas Dulu --</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <div class="flex items-center justify-between mb-1.5">
+                        <label for="dist-jumlah" class="block text-xs font-medium text-slate-600">Jumlah (Lembar)</label>
+                        <span class="text-[11px] text-slate-400">1 Bendel = 100 Lbr</span>
+                      </div>
+                      <input
+                        id="dist-jumlah"
+                        type="number"
+                        min="1"
+                        step="1"
+                        required
+                        placeholder="100"
+                        class="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white font-mono-seri focus:outline-none focus:ring-2 focus:ring-blue-700/15 focus:border-blue-600 transition"
+                      />
+                      <div class="flex flex-wrap items-center gap-1.5 mt-2">
+                        <button type="button" data-dist-preset="100" class="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-700 transition">
+                          1 Bendel (100)
+                        </button>
+                        <button type="button" data-dist-preset="200" class="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-700 transition">
+                          2 Bendel (200)
+                        </button>
+                        <button type="button" data-dist-preset="500" class="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-700 transition">
+                          5 Bendel (500)
+                        </button>
+                        <button type="button" id="btn-dist-preset-all" class="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-blue-50 hover:bg-blue-100 text-blue-700 transition">
+                          Semua Sisa
+                        </button>
+                      </div>
+                    </div>
+
+                    <div class="space-y-4">
+                      <div>
+                        <label for="dist-status" class="block text-xs font-medium text-slate-600 mb-1.5">Status Setoran</label>
+                        <select
+                          id="dist-status"
+                          class="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-700/15 focus:border-blue-600 transition"
+                        >
+                          <option value="Belum Setor">Belum Setor</option>
+                          <option value="Lunas Setor">Lunas Setor</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label for="dist-catatan" class="block text-xs font-medium text-slate-600 mb-1.5">Catatan (Opsional)</label>
+                        <input
+                          id="dist-catatan"
+                          type="text"
+                          placeholder="Contoh: Shift Pagi Loket Barat"
+                          class="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-700/15 focus:border-blue-600 transition"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="pt-3 flex flex-col sm:flex-row sm:items-center justify-end gap-3 border-t border-slate-100">
+                    <button
+                      type="reset"
+                      id="btn-reset-distribusi"
+                      class="px-4 py-2.5 rounded-xl border border-slate-200 text-xs sm:text-sm font-medium text-slate-600 hover:bg-slate-50 transition"
+                    >
+                      Bersihkan
+                    </button>
+                    <button
+                      type="submit"
+                      id="btn-submit-distribusi"
+                      class="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-blue-700 hover:bg-blue-800 text-white text-xs sm:text-sm font-semibold shadow-sm shadow-blue-700/15 disabled:opacity-50 transition min-h-[42px]"
+                    >
+                      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                      <span>Keluarkan Karcis</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              <!-- Ringkasan Karcis Keluar (Soft Light Card) -->
+              <div class="lg:col-span-4 bg-gradient-to-br from-slate-50 to-blue-50/50 rounded-2xl border border-slate-200/90 p-5 sm:p-6 flex flex-col justify-between">
+                <div>
+                  <div class="flex items-center justify-between gap-2 pb-3.5 mb-4 border-b border-slate-200/80">
+                    <span class="text-xs font-bold text-slate-700">Ringkasan Karcis Keluar</span>
+                    <span id="preview-dist-badge" class="text-[11px] px-2.5 py-0.5 rounded-full bg-white text-slate-600 border border-slate-200 font-medium">
+                      Menunggu Input
+                    </span>
+                  </div>
+
+                  <div class="space-y-3.5">
+                    <div class="rounded-xl bg-white border border-slate-200/80 p-3.5 shadow-2xs">
+                      <p class="text-[11px] text-slate-500 font-medium">Nomor Seri Keluar</p>
+                      <p id="preview-dist-seri" class="mt-1 text-base font-bold font-mono-seri text-blue-700 break-all">&mdash;</p>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                      <div class="rounded-xl bg-white border border-slate-200/80 p-3 shadow-2xs">
+                        <p class="text-[11px] text-slate-500 font-medium">Jumlah</p>
+                        <p id="preview-dist-bendel" class="mt-1 text-sm font-bold text-slate-800 tabular-nums">0 Bendel + 0 Lbr</p>
+                      </div>
+                      <div class="rounded-xl bg-white border border-slate-200/80 p-3 shadow-2xs">
+                        <p class="text-[11px] text-slate-500 font-medium">Tarif</p>
+                        <p id="preview-dist-tarif" class="mt-1 text-sm font-bold text-slate-800 tabular-nums">Rp 0</p>
+                      </div>
+                    </div>
+                    <div class="rounded-xl bg-emerald-50/90 border border-emerald-200/80 p-3.5">
+                      <p class="text-[11px] text-emerald-700 font-medium">Total Nilai Retribusi</p>
+                      <p id="preview-dist-nominal" class="mt-1 text-xl font-bold text-emerald-700 tabular-nums">Rp 0</p>
+                    </div>
+                    <div id="preview-dist-warning" class="hidden rounded-xl bg-rose-50 border border-rose-200 p-3 text-xs text-rose-700 font-medium"></div>
+                  </div>
+                </div>
+
+                <div class="mt-5 pt-3.5 border-t border-slate-200/80 flex items-center justify-between text-xs text-slate-500">
+                  <span>Sisa Stok Setelah Keluar:</span>
+                  <span id="preview-dist-sisabatch" class="font-semibold font-mono-seri text-slate-800">&mdash;</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Tabel Riwayat Pengeluaran & Setoran -->
+            <div class="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5 sm:p-6">
+              <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 mb-4 border-b border-slate-100">
+                <div>
+                  <h3 class="text-base font-bold text-slate-800">Riwayat Pengeluaran &amp; Setoran</h3>
+                  <p class="text-xs text-slate-500 mt-0.5">Klik <strong>Retur / Setor</strong> untuk mencatat sisa karcis atau pelunasan</p>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:flex items-center gap-2.5">
+                  <div class="relative sm:col-span-2 lg:w-64">
+                    <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 pointer-events-none">
+                      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                    </span>
+                    <input
+                      id="filter-dist-search"
+                      type="search"
+                      placeholder="Cari petugas, seri, fasilitas..."
+                      class="w-full pl-9 pr-3 py-2 text-xs sm:text-sm rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-700/15"
+                    />
+                  </div>
+                  <select id="filter-dist-facility" class="px-3 py-2 text-xs sm:text-sm rounded-xl border border-slate-200 bg-white focus:outline-none">
+                    <option value="ALL">Semua Fasilitas</option>
+                  </select>
+                  <select id="filter-dist-status" class="px-3 py-2 text-xs sm:text-sm rounded-xl border border-slate-200 bg-white focus:outline-none">
+                    <option value="ALL">Semua Status</option>
+                    <option value="Belum Setor">Belum Setor</option>
+                    <option value="Lunas Setor">Lunas Setor</option>
+                  </select>
+                  <select id="filter-dist-perpage" class="px-2.5 py-2 text-xs sm:text-sm rounded-xl border border-slate-200 bg-white focus:outline-none">
+                    <option value="10">10 / hal</option>
+                    <option value="25">25 / hal</option>
+                    <option value="50">50 / hal</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="hidden md:block overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                  <thead>
+                    <tr class="border-b border-slate-200 text-xs font-semibold text-slate-500 bg-slate-50/70">
+                      <th class="py-3 px-3.5">Tanggal</th>
+                      <th class="py-3 px-3.5">Petugas</th>
+                      <th class="py-3 px-3.5">Fasilitas &amp; Tarif</th>
+                      <th class="py-3 px-3.5">Seri Keluar</th>
+                      <th class="py-3 px-3.5">Terpakai &amp; Retur</th>
+                      <th class="py-3 px-3.5 text-right">Nilai (Rp)</th>
+                      <th class="py-3 px-3.5 text-center">Status</th>
+                      <th class="py-3 px-3.5 text-right">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody id="dist-table-body" class="divide-y divide-slate-100 text-xs sm:text-sm"></tbody>
+                </table>
+              </div>
+              <div id="dist-mobile-cards" class="md:hidden space-y-3"></div>
+
+              <div class="mt-4 pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600">
+                <div id="dist-pagination-info">Menampilkan 0 dari 0 transaksi</div>
+                <div id="dist-pagination-controls" class="flex items-center gap-1.5"></div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ================================================================
+               VIEW 3: STOK KARCIS (ADMIN)
+               ================================================================ -->
+          <section id="view-stok" class="view-section hidden space-y-6 view-enter">
+            <div id="stok-facility-summary-cards" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5"></div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              <div class="lg:col-span-8 bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5 sm:p-6">
+                <div class="flex items-center justify-between gap-3 pb-4 mb-5 border-b border-slate-100">
+                  <div>
+                    <h2 class="text-base sm:text-lg font-bold text-slate-800">Tambah Stok Karcis</h2>
+                    <p class="text-xs text-slate-500 mt-0.5">Daftarkan fasilitas baru atau pilih fasilitas yang ada beserta tarif dan nomor seri karcis</p>
+                  </div>
+                  <span class="hidden sm:inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-100">
+                    TA <span class="kpi-year-label ml-1">2026</span>
+                  </span>
+                </div>
+
+                <form id="form-stok" class="space-y-4" novalidate>
+                  <div class="grid grid-cols-1 sm:grid-cols-12 gap-4">
+                    <div class="sm:col-span-5">
+                      <label for="stok-facility-name" class="block text-xs font-medium text-slate-600 mb-1.5">Nama Fasilitas</label>
+                      <input
+                        id="stok-facility-name"
+                        type="text"
+                        list="datalist-stok-facilities"
+                        autocomplete="off"
+                        required
+                        placeholder="Ketik atau pilih fasilitas"
+                        class="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-700/15 focus:border-blue-600 transition"
+                      />
+                      <datalist id="datalist-stok-facilities"></datalist>
+                      <p id="stok-facility-match-hint" class="hidden text-[11px] font-medium mt-1"></p>
+                    </div>
+                    <div class="sm:col-span-4">
+                      <label for="stok-tarif" class="block text-xs font-medium text-slate-600 mb-1.5">Tarif / Harga Karcis (Rp)</label>
+                      <input
+                        id="stok-tarif"
+                        type="number"
+                        min="0"
+                        step="100"
+                        required
+                        placeholder="5000"
+                        class="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white font-mono-seri focus:outline-none focus:ring-2 focus:ring-blue-700/15 focus:border-blue-600 transition"
+                      />
+                    </div>
+                    <div class="sm:col-span-3">
+                      <label for="stok-kode" class="block text-xs font-medium text-slate-600 mb-1.5">Kode Seri</label>
+                      <input
+                        id="stok-kode"
+                        type="text"
+                        required
+                        maxlength="12"
+                        placeholder="PKL"
+                        class="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white font-mono-seri uppercase focus:outline-none focus:ring-2 focus:ring-blue-700/15 focus:border-blue-600 transition"
+                      />
+                    </div>
+                  </div>
+
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <div class="flex items-center justify-between mb-1.5">
+                        <label for="stok-mulai" class="block text-xs font-medium text-slate-600">Dari Nomor</label>
+                        <button type="button" id="btn-stok-suggest-next" class="text-[11px] font-semibold text-blue-700 hover:underline">
+                          Lanjutkan otomatis
+                        </button>
+                      </div>
+                      <input
+                        id="stok-mulai"
+                        type="number"
+                        min="1"
+                        step="1"
+                        required
+                        placeholder="1"
+                        class="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white font-mono-seri focus:outline-none focus:ring-2 focus:ring-blue-700/15 focus:border-blue-600 transition"
+                      />
+                    </div>
+                    <div>
+                      <label for="stok-sampai" class="block text-xs font-medium text-slate-600 mb-1.5">Sampai Nomor</label>
+                      <input
+                        id="stok-sampai"
+                        type="number"
+                        min="1"
+                        step="1"
+                        required
+                        placeholder="500"
+                        class="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white font-mono-seri focus:outline-none focus:ring-2 focus:ring-blue-700/15 focus:border-blue-600 transition"
+                      />
+                    </div>
+                  </div>
+
+                  <div class="flex flex-wrap items-center gap-2 pt-1">
+                    <span class="text-xs font-medium text-slate-500">Isi Cepat:</span>
+                    <button type="button" data-stok-bendel="1" class="px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-700 transition">
+                      +1 Bendel (100)
+                    </button>
+                    <button type="button" data-stok-bendel="5" class="px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-700 transition">
+                      +5 Bendel (500)
+                    </button>
+                    <button type="button" data-stok-bendel="10" class="px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-700 transition">
+                      +10 Bendel (1.000)
+                    </button>
+                    <button type="button" data-stok-bendel="25" class="px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-700 transition">
+                      +25 Bendel (2.500)
+                    </button>
+                  </div>
+
+                  <div class="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-end gap-3">
+                    <button type="reset" id="btn-reset-stok" class="px-4 py-2.5 rounded-xl border border-slate-200 text-xs sm:text-sm font-medium text-slate-600 hover:bg-slate-50 transition">
+                      Bersihkan
+                    </button>
+                    <button type="submit" id="btn-submit-stok" class="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-blue-700 hover:bg-blue-800 text-white text-xs sm:text-sm font-semibold shadow-sm shadow-blue-700/15 disabled:opacity-50 transition min-h-[42px]">
+                      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+                      </svg>
+                      <span>Simpan Stok</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              <div class="lg:col-span-4 bg-gradient-to-br from-slate-50 to-blue-50/50 rounded-2xl border border-slate-200/90 p-5 sm:p-6 flex flex-col justify-between">
+                <div>
+                  <div class="flex items-center justify-between pb-3.5 mb-4 border-b border-slate-200/80">
+                    <span class="text-xs font-bold text-slate-700">Ringkasan Stok Baru</span>
+                    <span id="preview-stok-status-badge" class="text-[11px] px-2.5 py-0.5 rounded-full bg-white text-slate-600 border border-slate-200 font-medium">Siap Input</span>
+                  </div>
+                  <div class="space-y-3.5">
+                    <div class="rounded-xl bg-white border border-slate-200/80 p-3.5 shadow-2xs">
+                      <p class="text-[11px] text-slate-500 font-medium">Rentang Nomor Seri</p>
+                      <p id="preview-stok-seri" class="mt-1 text-base font-bold font-mono-seri text-blue-700 break-all">&mdash;</p>
+                    </div>
+                    <div class="rounded-xl bg-white border border-slate-200/80 p-3.5 shadow-2xs">
+                      <p class="text-[11px] text-slate-500 font-medium">Jumlah Karcis</p>
+                      <p id="preview-stok-fisik" class="mt-1 text-base font-bold text-slate-800 tabular-nums">0 Bendel + 0 Lembar</p>
+                      <p id="preview-stok-lembar-sub" class="text-xs text-slate-500 mt-0.5 tabular-nums">(0 Lembar)</p>
+                    </div>
+                    <div class="rounded-xl bg-emerald-50/90 border border-emerald-200/80 p-3.5">
+                      <p class="text-[11px] text-emerald-700 font-medium">Nilai Potensi Retribusi</p>
+                      <p id="preview-stok-nilai" class="mt-1 text-lg font-bold text-emerald-700 tabular-nums">Rp 0</p>
+                    </div>
+                    <div id="preview-stok-overlap" class="hidden rounded-xl bg-rose-50 border border-rose-200 p-3 text-xs text-rose-700 font-medium"></div>
+                  </div>
+                </div>
+                <p class="mt-4 pt-3 border-t border-slate-200/80 text-[11px] text-slate-500">
+                  Nomor seri yang ganda atau bertabrakan akan ditolak otomatis.
+                </p>
+              </div>
+            </div>
+
+            <!-- Tabel Daftar Stok Gudang -->
+            <div class="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5 sm:p-6">
+              <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 mb-4 border-b border-slate-100">
+                <div>
+                  <h3 class="text-base font-bold text-slate-800">Daftar Stok Gudang</h3>
+                  <p class="text-xs text-slate-500 mt-0.5">Memantau sisa stok utama dan stok retur</p>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:flex items-center gap-2.5">
+                  <div class="relative sm:col-span-2 lg:w-64">
+                    <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 pointer-events-none">
+                      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                    </span>
+                    <input
+                      id="filter-stok-search"
+                      type="search"
+                      placeholder="Cari fasilitas, kode, seri..."
+                      class="w-full pl-9 pr-3 py-2 text-xs sm:text-sm rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none"
+                    />
+                  </div>
+                  <select id="filter-stok-facility" class="px-3 py-2 text-xs sm:text-sm rounded-xl border border-slate-200 bg-white focus:outline-none">
+                    <option value="ALL">Semua Fasilitas</option>
+                  </select>
+                  <select id="filter-stok-status" class="px-3 py-2 text-xs sm:text-sm rounded-xl border border-slate-200 bg-white focus:outline-none">
+                    <option value="ALL">Semua Stok</option>
+                    <option value="AVAILABLE">Masih Tersedia</option>
+                    <option value="EMPTY">Habis (0)</option>
+                    <option value="RETUR">Stok Retur</option>
+                  </select>
+                  <select id="filter-stok-perpage" class="px-2.5 py-2 text-xs sm:text-sm rounded-xl border border-slate-200 bg-white focus:outline-none">
+                    <option value="10">10 / hal</option>
+                    <option value="25">25 / hal</option>
+                    <option value="50">50 / hal</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="hidden md:block overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                  <thead>
+                    <tr class="border-b border-slate-200 text-xs font-semibold text-slate-500 bg-slate-50/70">
+                      <th class="py-3 px-3.5">Fasilitas &amp; Tarif</th>
+                      <th class="py-3 px-3.5">Jenis Stok</th>
+                      <th class="py-3 px-3.5">Seri Awal</th>
+                      <th class="py-3 px-3.5">Seri Sisa</th>
+                      <th class="py-3 px-3.5">Jumlah Awal</th>
+                      <th class="py-3 px-3.5">Sisa Stok</th>
+                      <th class="py-3 px-3.5 text-right">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody id="stok-table-body" class="divide-y divide-slate-100 text-xs sm:text-sm"></tbody>
+                </table>
+              </div>
+              <div id="stok-mobile-cards" class="md:hidden space-y-3"></div>
+
+              <div class="mt-4 pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600">
+                <div id="stok-pagination-info">Menampilkan 0 dari 0 batch</div>
+                <div id="stok-pagination-controls" class="flex items-center gap-1.5"></div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ================================================================
+               VIEW 4: MASTER JENIS FASILITAS (ADMIN)
+               ================================================================ -->
+          <section id="view-fasilitas" class="view-section hidden space-y-6 view-enter">
+            <div class="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5 sm:p-6">
+              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 mb-5 border-b border-slate-100">
+                <div>
+                  <h2 class="text-base sm:text-lg font-semibold text-slate-900">Fasilitas &amp; Tarif Retribusi</h2>
+                  <p class="text-xs text-slate-500 mt-0.5">Kelola daftar fasilitas, tarif karcis, dan kode serinya</p>
+                </div>
+                <button
+                  type="button"
+                  id="btn-add-facility"
+                  class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-700 hover:bg-blue-800 text-white text-xs sm:text-sm font-semibold shadow-sm transition"
+                >
+                  <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+                  </svg>
+                  <span>Tambah Fasilitas</span>
+                </button>
+              </div>
+
+              <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-4">
+                <div class="relative flex-1 max-w-md">
+                  <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 pointer-events-none">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                  </span>
+                  <input
+                    id="filter-fac-search"
+                    type="search"
+                    placeholder="Cari nama atau kode fasilitas..."
+                    class="w-full pl-9 pr-3 py-2 text-xs sm:text-sm rounded-xl border border-slate-300 focus:outline-none"
+                  />
+                </div>
+                <select id="filter-fac-status" class="px-3 py-2 text-xs sm:text-sm rounded-xl border border-slate-300 bg-white focus:outline-none">
+                  <option value="ALL">Semua Status</option>
+                  <option value="ACTIVE">Aktif</option>
+                  <option value="INACTIVE">Nonaktif</option>
+                </select>
+              </div>
+
+              <div class="hidden md:block overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                  <thead>
+                    <tr class="border-b border-slate-200 text-xs font-semibold text-slate-600 bg-slate-50/80">
+                      <th class="py-3 px-4">Nama Fasilitas</th>
+                      <th class="py-3 px-4">Kode Seri</th>
+                      <th class="py-3 px-4 text-right">Tarif Satuan</th>
+                      <th class="py-3 px-4 text-right">Batas Minimal</th>
+                      <th class="py-3 px-4 text-right">Sisa Stok (<span class="kpi-year-label">2026</span>)</th>
+                      <th class="py-3 px-4 text-center">Status</th>
+                      <th class="py-3 px-4 text-right">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody id="fac-table-body" class="divide-y divide-slate-100 text-xs sm:text-sm"></tbody>
+                </table>
+              </div>
+              <div id="fac-mobile-cards" class="md:hidden space-y-3"></div>
+            </div>
+          </section>
+
+          <!-- ================================================================
+               VIEW 5: KELOLA AKUN USER & PERSETUJUAN PENDAFTARAN (ADMIN)
+               ================================================================ -->
+          <section id="view-users" class="view-section hidden space-y-6 view-enter">
+            <div class="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5 sm:p-6">
+              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 mb-5 border-b border-slate-100">
+                <div>
+                  <h2 class="text-base sm:text-lg font-semibold text-slate-900">Akun Petugas</h2>
+                  <p class="text-xs text-slate-500 mt-0.5">Setujui atau tolak pendaftaran akun baru agar petugas bisa masuk ke sistem</p>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span id="users-summary-pending" class="px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200">0 Menunggu</span>
+                  <span id="users-summary-approved" class="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">0 Aktif</span>
+                </div>
+              </div>
+
+              <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-4">
+                <div class="relative flex-1 max-w-md">
+                  <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 pointer-events-none">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                  </span>
+                  <input
+                    id="filter-users-search"
+                    type="search"
+                    placeholder="Cari nama petugas atau unit tugas..."
+                    class="w-full pl-9 pr-3 py-2 text-xs sm:text-sm rounded-xl border border-slate-300 focus:outline-none"
+                  />
+                </div>
+                <select id="filter-users-status" class="px-3 py-2 text-xs sm:text-sm rounded-xl border border-slate-300 bg-white focus:outline-none">
+                  <option value="ALL">Semua Status</option>
+                  <option value="pending">Menunggu Persetujuan</option>
+                  <option value="approved">Aktif / Disetujui</option>
+                  <option value="rejected">Ditolak / Nonaktif</option>
+                </select>
+              </div>
+
+              <div class="hidden md:block overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                  <thead>
+                    <tr class="border-b border-slate-200 text-xs font-semibold text-slate-600 bg-slate-50/80">
+                      <th class="py-3 px-4">Nama Lengkap</th>
+                      <th class="py-3 px-4">Unit / Lokasi Tugas</th>
+                      <th class="py-3 px-4 text-center">Peran</th>
+                      <th class="py-3 px-4 text-center">Status</th>
+                      <th class="py-3 px-4">Tanggal Daftar</th>
+                      <th class="py-3 px-4 text-right">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody id="users-table-body" class="divide-y divide-slate-100 text-xs sm:text-sm"></tbody>
+                </table>
+              </div>
+              <div id="users-mobile-cards" class="md:hidden space-y-3"></div>
+            </div>
+          </section>
+
+          <!-- ================================================================
+               VIEW 6: LAPORAN & CETAK REKAPITULASI PEMASUKAN & PENGELUARAN KARCIS
+               ================================================================ -->
+          <section id="view-laporan" class="view-section hidden space-y-6 view-enter">
+            <!-- Control Panel: Filter & Pengaturan Pejabat Penanda Tangan (Hidden on Print) -->
+            <div class="no-print grid grid-cols-1 xl:grid-cols-12 gap-6">
+              <!-- Filter Laporan -->
+              <div class="xl:col-span-5 bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5 sm:p-6 flex flex-col justify-between">
+                <div>
+                  <h2 class="text-base font-semibold text-slate-900">Filter Laporan</h2>
+                  <p class="text-xs text-slate-500 mt-0.5">Pilih jenis laporan dan rentang tanggal yang ingin dicetak</p>
+
+                  <div class="mt-4 space-y-3.5">
+                    <div>
+                      <label for="rep-type" class="block text-xs font-medium text-slate-700 mb-1">Jenis Laporan *</label>
+                      <select
+                        id="rep-type"
+                        class="w-full px-3 py-2 text-xs sm:text-sm rounded-xl border border-blue-300 bg-blue-50/50 font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-700/20"
+                      >
+                        <option value="ALL">Rekapitulasi Pemasukan &amp; Pengeluaran (Lengkap)</option>
+                        <option value="PEMASUKAN">Pemasukan Stok &amp; Retur Saja</option>
+                        <option value="PENGELUARAN">Pengeluaran &amp; Setoran Saja</option>
+                      </select>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label for="rep-start-date" class="block text-xs font-medium text-slate-700 mb-1">Dari Tanggal</label>
+                        <input id="rep-start-date" type="date" class="w-full px-3 py-2 text-xs sm:text-sm rounded-xl border border-slate-300 bg-white focus:outline-none" />
+                      </div>
+                      <div>
+                        <label for="rep-end-date" class="block text-xs font-medium text-slate-700 mb-1">Sampai Tanggal</label>
+                        <input id="rep-end-date" type="date" class="w-full px-3 py-2 text-xs sm:text-sm rounded-xl border border-slate-300 bg-white focus:outline-none" />
+                      </div>
+                    </div>
+
+                    <div class="flex flex-wrap gap-1.5">
+                      <button type="button" id="btn-rep-range-month" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-700 border border-slate-200 transition">
+                        Bulan Ini
+                      </button>
+                      <button type="button" id="btn-rep-range-year" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-700 border border-slate-200 transition">
+                        Satu Tahun Penuh
+                      </button>
+                      <button type="button" id="btn-rep-range-clear" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 transition">
+                        Semua Tanggal
+                      </button>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                      <div>
+                        <label for="rep-facility" class="block text-xs font-medium text-slate-700 mb-1">Jenis Fasilitas</label>
+                        <select id="rep-facility" class="w-full px-3 py-2 text-xs sm:text-sm rounded-xl border border-slate-300 bg-white focus:outline-none">
+                          <option value="ALL">Semua Fasilitas</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label for="rep-status" class="block text-xs font-medium text-slate-700 mb-1">Status Setoran</label>
+                        <select id="rep-status" class="w-full px-3 py-2 text-xs sm:text-sm rounded-xl border border-slate-300 bg-white focus:outline-none">
+                          <option value="ALL">Semua Status</option>
+                          <option value="Lunas Setor">Lunas Setor</option>
+                          <option value="Belum Setor">Belum Setor</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Action Buttons: Print & Excel -->
+                <div class="mt-5 pt-4 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    id="btn-print-report"
+                    class="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-blue-700 hover:bg-blue-800 text-white text-xs sm:text-sm font-semibold shadow-sm transition min-h-[42px]"
+                  >
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                    </svg>
+                    <span>Cetak Laporan / PDF</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    id="btn-export-excel"
+                    class="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-semibold shadow-sm transition min-h-[42px]"
+                  >
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <span>Download Excel (.xlsx)</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Pengaturan Kop Surat & Pejabat Penanda Tangan -->
+              <div class="xl:col-span-7 bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5 sm:p-6">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3.5 mb-4 border-b border-slate-100">
+                  <div>
+                    <h2 class="text-base font-semibold text-slate-900">Kop Surat &amp; Tanda Tangan</h2>
+                    <p class="text-xs text-slate-500 mt-0.5">Ditampilkan di bagian atas dan bawah halaman cetak</p>
+                  </div>
+                  <button
+                    type="button"
+                    id="btn-save-signatories"
+                    class="self-start sm:self-auto inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold transition"
+                  >
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>Simpan Pengaturan</span>
+                  </button>
+                </div>
+
+                <div class="space-y-4">
+                  <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div class="sm:col-span-2">
+                      <label for="sig-instansi" class="block text-xs font-medium text-slate-700 mb-1">Nama Instansi / Kop Surat</label>
+                      <input id="sig-instansi" type="text" placeholder="DINAS PARIWISATA & KEBUDAYAAN" class="w-full px-3 py-2 text-xs sm:text-sm rounded-xl border border-slate-300" />
+                    </div>
+                    <div>
+                      <label for="sig-kota" class="block text-xs font-medium text-slate-700 mb-1">Kota</label>
+                      <input id="sig-kota" type="text" placeholder="Malang" class="w-full px-3 py-2 text-xs sm:text-sm rounded-xl border border-slate-300" />
+                    </div>
+                  </div>
+
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+                    <div class="rounded-xl bg-slate-50 border border-slate-200/80 p-3.5 space-y-2.5">
+                      <p class="text-xs font-semibold text-blue-700">Pejabat Mengetahui (Kiri)</p>
+                      <div>
+                        <label for="sig-mengetahui-jabatan" class="block text-xs font-medium text-slate-600 mb-1">Jabatan</label>
+                        <input id="sig-mengetahui-jabatan" type="text" placeholder="Kepala UPT Pengelola Retribusi" class="w-full px-3 py-1.5 text-xs sm:text-sm rounded-lg border border-slate-300 bg-white" />
+                      </div>
+                      <div>
+                        <label for="sig-mengetahui-nama" class="block text-xs font-medium text-slate-600 mb-1">Nama &amp; Gelar</label>
+                        <input id="sig-mengetahui-nama" type="text" placeholder="Drs. H. Ahmad Fauzi, M.Si" class="w-full px-3 py-1.5 text-xs sm:text-sm rounded-lg border border-slate-300 bg-white" />
+                      </div>
+                      <div>
+                        <label for="sig-mengetahui-nip" class="block text-xs font-medium text-slate-600 mb-1">NIP (Opsional)</label>
+                        <input id="sig-mengetahui-nip" type="text" placeholder="NIP. 19750412 200112 1 003" class="w-full px-3 py-1.5 text-xs sm:text-sm rounded-lg border border-slate-300 bg-white font-mono-seri" />
+                      </div>
+                    </div>
+
+                    <div class="rounded-xl bg-slate-50 border border-slate-200/80 p-3.5 space-y-2.5">
+                      <p class="text-xs font-semibold text-emerald-700">Pengelola / Bendahara (Kanan)</p>
+                      <div>
+                        <label for="sig-pengelola-jabatan" class="block text-xs font-medium text-slate-600 mb-1">Jabatan</label>
+                        <input id="sig-pengelola-jabatan" type="text" placeholder="Bendahara Penerimaan Pembantu" class="w-full px-3 py-1.5 text-xs sm:text-sm rounded-lg border border-slate-300 bg-white" />
+                      </div>
+                      <div>
+                        <label for="sig-pengelola-nama" class="block text-xs font-medium text-slate-600 mb-1">Nama &amp; Gelar</label>
+                        <input id="sig-pengelola-nama" type="text" placeholder="Siti Aminah, S.E." class="w-full px-3 py-1.5 text-xs sm:text-sm rounded-lg border border-slate-300 bg-white" />
+                      </div>
+                      <div>
+                        <label for="sig-pengelola-nip" class="block text-xs font-medium text-slate-600 mb-1">NIP (Opsional)</label>
+                        <input id="sig-pengelola-nip" type="text" placeholder="NIP. 19860819 201001 2 009" class="w-full px-3 py-1.5 text-xs sm:text-sm rounded-lg border border-slate-300 bg-white font-mono-seri" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Printable Official Report Card -->
+            <div class="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5 sm:p-8 print-card-reset">
+              <!-- Official Letterhead (Kop Surat Resmi) -->
+              <div class="border-b-2 border-slate-900 pb-4 mb-6 text-center">
+                <p id="print-kop-instansi" class="text-sm sm:text-base font-extrabold uppercase tracking-wide text-slate-900">
+                  PEMERINTAH DAERAH / UPT PENGELOLA RETRIBUSI DAERAH
+                </p>
+                <h2 id="print-kop-judul" class="text-base sm:text-xl font-extrabold uppercase tracking-tight text-slate-900 mt-0.5">
+                  LAPORAN REKAPITULASI PEMASUKAN DAN PENGELUARAN KARCIS RETRIBUSI
+                </h2>
+                <p id="print-kop-meta" class="text-xs text-slate-600 mt-1 font-medium">
+                  Tahun Anggaran: 2026 | Periode: Semua Tanggal | Fasilitas: Semua Fasilitas
+                </p>
+              </div>
+
+              <!-- Executive Summary Strip (Pemasukan & Pengeluaran Karcis) -->
+              <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
+                <div class="rounded-xl border border-slate-200 p-3 bg-slate-50/60">
+                  <p class="text-[10px] font-bold text-blue-700 uppercase">Pemasukan Karcis (Stok)</p>
+                  <p id="rep-sum-stok-masuk" class="text-sm sm:text-base font-extrabold text-slate-900 mt-0.5 tabular-nums">0 Lembar</p>
+                  <p id="rep-sum-stok-masuk-bdl" class="text-[11px] text-slate-500 tabular-nums">0 Bdl 0 Lbr</p>
+                </div>
+                <div class="rounded-xl border border-slate-200 p-3 bg-slate-50/60">
+                  <p class="text-[10px] font-bold text-indigo-700 uppercase">Pengeluaran (Distribusi)</p>
+                  <p id="rep-sum-keluar" class="text-sm sm:text-base font-extrabold text-slate-900 mt-0.5 tabular-nums">0 Lembar</p>
+                  <p id="rep-sum-keluar-bdl" class="text-[11px] text-slate-500 tabular-nums">0 Bdl 0 Lbr</p>
+                </div>
+                <div class="rounded-xl border border-slate-200 p-3 bg-slate-50/60">
+                  <p class="text-[10px] font-bold text-emerald-700 uppercase">Terpakai &amp; Retur</p>
+                  <p id="rep-sum-terjual" class="text-sm sm:text-base font-extrabold text-blue-700 mt-0.5 tabular-nums">0 Lbr</p>
+                  <p id="rep-sum-retur" class="text-[11px] text-amber-700 font-semibold tabular-nums">Retur: 0 Lbr</p>
+                </div>
+                <div class="rounded-xl border border-slate-200 p-3 bg-slate-50/60">
+                  <p class="text-[10px] font-bold text-emerald-700 uppercase">Pemasukan Retribusi (Rp)</p>
+                  <p id="rep-sum-nominal" class="text-sm sm:text-base font-extrabold text-emerald-700 mt-0.5 tabular-nums">Rp 0</p>
+                  <p id="rep-sum-lunas" class="text-[11px] text-emerald-600 font-medium tabular-nums">Lunas: Rp 0</p>
+                </div>
+                <div class="col-span-2 sm:col-span-1 rounded-xl border border-slate-200 p-3 bg-slate-50/60">
+                  <p class="text-[10px] font-bold text-amber-700 uppercase">Belum Setor (Rp)</p>
+                  <p id="rep-sum-belum" class="text-sm sm:text-base font-extrabold text-amber-700 mt-0.5 tabular-nums">Rp 0</p>
+                  <p id="rep-sum-count" class="text-[11px] text-slate-500 tabular-nums">0 Transaksi</p>
+                </div>
+              </div>
+
+              <!-- BAGIAN I: TABEL REKAPITULASI PEMASUKAN KARCIS (STOK GUDANG MASUK & RETUR) -->
+              <div id="rep-section-pemasukan" class="mb-8">
+                <div class="flex items-center justify-between mb-2.5">
+                  <h3 class="text-xs sm:text-sm font-extrabold uppercase tracking-wide text-slate-900">
+                    I. Rekapitulasi Pemasukan Karcis (Pendaftaran Batch Gudang &amp; Batch Retur)
+                  </h3>
+                </div>
+                <div class="overflow-x-auto">
+                  <table class="w-full text-left border-collapse print-table">
+                    <thead>
+                      <tr class="border-y border-slate-300 bg-slate-100/90 text-[11px] font-bold uppercase tracking-wider text-slate-700">
+                        <th class="py-2 px-3 text-center">No</th>
+                        <th class="py-2 px-3">Jenis Fasilitas</th>
+                        <th class="py-2 px-3 text-center">Kode</th>
+                        <th class="py-2 px-3">Tipe Pemasukan</th>
+                        <th class="py-2 px-3">Rentang Nomor Seri Masuk</th>
+                        <th class="py-2 px-3 text-right">Jml Masuk (Lbr)</th>
+                        <th class="py-2 px-3 text-center">Volume (Bendel)</th>
+                        <th class="py-2 px-3 text-right">Sisa Saat Ini (Lbr)</th>
+                        <th class="py-2 px-3 text-right">Tarif Satuan (Rp)</th>
+                        <th class="py-2 px-3 text-right">Nilai Potensi (Rp)</th>
+                      </tr>
+                    </thead>
+                    <tbody id="rep-pemasukan-body" class="divide-y divide-slate-200 text-xs"></tbody>
+                    <tfoot id="rep-pemasukan-foot"></tfoot>
+                  </table>
+                </div>
+              </div>
+
+              <!-- BAGIAN II: TABEL REKAPITULASI PENGELUARAN KARCIS & PEMASUKAN SETORAN RETRIBUSI -->
+              <div id="rep-section-pengeluaran">
+                <div class="flex items-center justify-between mb-2.5">
+                  <h3 class="text-xs sm:text-sm font-extrabold uppercase tracking-wide text-slate-900">
+                    II. Rekapitulasi Pengeluaran Karcis (Distribusi Petugas), Retur Seri &amp; Realisasi Setoran Retribusi
+                  </h3>
+                </div>
+                <div id="report-table-desktop" class="hidden md:block overflow-x-auto">
+                  <table class="w-full text-left border-collapse print-table">
+                    <thead>
+                      <tr class="border-y border-slate-300 bg-slate-100/90 text-[11px] font-bold uppercase tracking-wider text-slate-700">
+                        <th class="py-2.5 px-3 text-center">No</th>
+                        <th class="py-2.5 px-3">Tanggal</th>
+                        <th class="py-2.5 px-3">Penerima / Petugas</th>
+                        <th class="py-2.5 px-3">Jenis Fasilitas</th>
+                        <th class="py-2.5 px-3 text-right">Tarif (Rp)</th>
+                        <th class="py-2.5 px-3">Seri Keluar</th>
+                        <th class="py-2.5 px-3 text-right">Keluar</th>
+                        <th class="py-2.5 px-3">Seri Terpakai</th>
+                        <th class="py-2.5 px-3 text-right">Terpakai</th>
+                        <th class="py-2.5 px-3">Seri Retur</th>
+                        <th class="py-2.5 px-3 text-right">Retur</th>
+                        <th class="py-2.5 px-3 text-right">Total Nominal (Rp)</th>
+                        <th class="py-2.5 px-3 text-center">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody id="rep-table-body" class="divide-y divide-slate-200 text-xs"></tbody>
+                    <tfoot id="rep-table-foot"></tfoot>
+                  </table>
+                </div>
+
+                <!-- Mobile Report Cards -->
+                <div id="report-mobile-cards" class="md:hidden space-y-3 no-print"></div>
+              </div>
+
+              <!-- Official Signature Block -->
+              <div class="print-signature-block grid grid-cols-1 sm:grid-cols-2 gap-8 mt-10 pt-6 border-t border-slate-200 text-xs sm:text-sm text-slate-800">
+                <div class="text-center">
+                  <p class="font-medium text-slate-600">Mengetahui,</p>
+                  <p id="print-sig-mengetahui-jabatan" class="font-bold text-slate-900 mt-0.5">Kepala UPT Pengelola Retribusi</p>
+                  <div class="h-20"></div>
+                  <p id="print-sig-mengetahui-nama" class="font-extrabold underline text-slate-900">( ................................................ )</p>
+                  <p id="print-sig-mengetahui-nip" class="text-xs font-mono-seri text-slate-600 mt-0.5"></p>
+                </div>
+
+                <div class="text-center">
+                  <p id="print-sig-kota-tanggal" class="font-medium text-slate-600">Malang, 14 November 2026</p>
+                  <p id="print-sig-pengelola-jabatan" class="font-bold text-slate-900 mt-0.5">Bendahara Penerimaan Pembantu</p>
+                  <div class="h-20"></div>
+                  <p id="print-sig-pengelola-nama" class="font-extrabold underline text-slate-900">( ................................................ )</p>
+                  <p id="print-sig-pengelola-nip" class="text-xs font-mono-seri text-slate-600 mt-0.5"></p>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ================================================================
+               VIEW 7: PORTAL KHUSUS PETUGAS / USER (PERMINTAAN & RETUR SERI)
+               ================================================================ -->
+          <section id="view-portal-user" class="view-section hidden space-y-6 view-enter">
+            <!-- Banner Ringkas Petugas -->
+            <div class="rounded-2xl bg-gradient-to-r from-blue-900 via-slate-900 to-slate-900 text-white p-5 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h2 class="text-lg sm:text-xl font-extrabold">Halo, <span id="portal-user-welcome-name">Petugas</span></h2>
+                <p class="text-xs text-slate-300 mt-0.5">
+                  Ajukan permintaan seri karcis baru atau laporkan pengembalian sisa karcis sesuai nomor seri.
+                </p>
+              </div>
+              <div class="shrink-0 rounded-xl bg-slate-800/90 border border-slate-700 px-4 py-2 text-xs">
+                <span class="text-slate-400">Unit Tugas: </span>
+                <span id="portal-user-unit-label" class="font-bold text-emerald-400">&mdash;</span>
+              </div>
+            </div>
+
+            <!-- 4 Kartu Ringkasan Petugas -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+              <div class="bg-white rounded-2xl border border-slate-200 p-4.5 shadow-2xs">
+                <p class="text-xs font-semibold text-slate-500 uppercase">Permintaan Menunggu</p>
+                <p id="user-kpi-pending" class="text-2xl font-extrabold text-amber-600 mt-1 tabular-nums">0 Pengajuan</p>
+                <p class="text-[11px] text-slate-400 mt-1">Menunggu verifikasi Admin</p>
+              </div>
+              <div class="bg-white rounded-2xl border border-slate-200 p-4.5 shadow-2xs">
+                <p class="text-xs font-semibold text-slate-500 uppercase">Total Karcis Diterima</p>
+                <p id="user-kpi-diterima" class="text-2xl font-extrabold text-blue-700 mt-1 tabular-nums">0 Lembar</p>
+                <p id="user-kpi-diterima-bdl" class="text-[11px] text-slate-500 mt-1 tabular-nums">0 Bendel 0 Lbr</p>
+              </div>
+              <div class="bg-white rounded-2xl border border-slate-200 p-4.5 shadow-2xs">
+                <p class="text-xs font-semibold text-slate-500 uppercase">Karcis Terpakai / Digunakan</p>
+                <p id="user-kpi-terpakai" class="text-2xl font-extrabold text-emerald-600 mt-1 tabular-nums">0 Lembar</p>
+                <p id="user-kpi-nominal" class="text-[11px] text-emerald-700 font-semibold mt-1 tabular-nums">Nilai: Rp 0</p>
+              </div>
+              <div class="bg-white rounded-2xl border border-slate-200 p-4.5 shadow-2xs">
+                <p class="text-xs font-semibold text-slate-500 uppercase">Sisa Dikembalikan (Retur)</p>
+                <p id="user-kpi-retur" class="text-2xl font-extrabold text-slate-900 mt-1 tabular-nums">0 Lembar</p>
+                <p class="text-[11px] text-slate-400 mt-1">Sesuai seri yang dikembalikan</p>
+              </div>
+            </div>
+
+            <!-- Form Pengajuan Permintaan Karcis Baru (Oleh User) -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              <div class="lg:col-span-8 bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5 sm:p-6">
+                <div class="pb-4 mb-4 border-b border-slate-100">
+                  <h3 class="text-base sm:text-lg font-bold text-slate-900">Form Pengajuan Permintaan Karcis Baru</h3>
+                  <p class="text-xs text-slate-500 mt-0.5">Permintaan akan diteruskan ke Administrator untuk dialokasikan nomor seri dari gudang stok</p>
+                </div>
+
+                <form id="form-user-request" class="space-y-4" novalidate>
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label for="req-tanggal" class="block text-xs font-semibold text-slate-700 mb-1.5">Tanggal Kebutuhan *</label>
+                      <input id="req-tanggal" type="date" required class="w-full px-3.5 py-2.5 text-base sm:text-sm rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-700/20 focus:border-blue-700" />
+                    </div>
+                    <div>
+                      <label for="req-facility" class="block text-xs font-semibold text-slate-700 mb-1.5">Pilih Jenis Fasilitas *</label>
+                      <select id="req-facility" required class="w-full px-3.5 py-2.5 text-base sm:text-sm rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-blue-700/20 focus:border-blue-700">
+                        <option value="">-- Pilih Jenis Fasilitas --</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <div class="flex items-center justify-between mb-1.5">
+                        <label for="req-jumlah" class="block text-xs font-semibold text-slate-700">Jumlah Karcis Diminta (Lembar) *</label>
+                        <span class="text-[11px] text-slate-400">1 Bendel = 100 Lembar</span>
+                      </div>
+                      <input
+                        id="req-jumlah"
+                        type="number"
+                        min="1"
+                        step="1"
+                        required
+                        placeholder="Contoh: 100"
+                        class="w-full px-3.5 py-2.5 text-base sm:text-sm rounded-xl border border-slate-300 font-mono-seri focus:outline-none focus:ring-2 focus:ring-blue-700/20 focus:border-blue-700"
+                      />
+                      <div class="flex flex-wrap gap-1.5 mt-2">
+                        <button type="button" data-req-preset="100" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-700 border border-slate-200 transition">
+                          1 Bendel (100)
+                        </button>
+                        <button type="button" data-req-preset="200" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-700 border border-slate-200 transition">
+                          2 Bendel (200)
+                        </button>
+                        <button type="button" data-req-preset="500" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-700 border border-slate-200 transition">
+                          5 Bendel (500)
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label for="req-catatan" class="block text-xs font-semibold text-slate-700 mb-1.5">Keterangan / Shift / Lokasi Tugas *</label>
+                      <input
+                        id="req-catatan"
+                        type="text"
+                        required
+                        placeholder="Contoh: Jaga Loket Pagi Area Timur"
+                        class="w-full px-3.5 py-2.5 text-base sm:text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-700/20 focus:border-blue-700"
+                      />
+                    </div>
+                  </div>
+
+                  <div class="pt-2 border-t border-slate-100 flex justify-end">
+                    <button
+                      type="submit"
+                      id="btn-submit-user-request"
+                      class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-700 hover:bg-blue-800 text-white text-xs sm:text-sm font-semibold shadow-sm transition min-h-[42px]"
+                    >
+                      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+                      </svg>
+                      <span>Kirim Pengajuan Permintaan Karcis</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              <!-- Preview Pengajuan User -->
+              <div class="lg:col-span-4 bg-slate-900 text-white rounded-2xl border border-slate-800 p-5 sm:p-6 flex flex-col justify-between">
+                <div class="space-y-4">
+                  <div class="pb-3 border-b border-slate-800 flex items-center justify-between">
+                    <span class="text-xs font-bold uppercase tracking-wider text-blue-400">Ringkasan Permintaan</span>
+                    <span class="text-[11px] px-2 py-0.5 rounded bg-slate-800 text-slate-300">Verifikasi Admin</span>
+                  </div>
+                  <div class="rounded-xl bg-slate-800/80 border border-slate-700 p-3.5">
+                    <p class="text-[11px] text-slate-400">Konversi Volume Diminta</p>
+                    <p id="preview-req-bendel" class="mt-1 text-base font-extrabold text-white tabular-nums">0 Bendel + 0 Lembar</p>
+                  </div>
+                  <div class="rounded-xl bg-emerald-950/50 border border-emerald-700/40 p-3.5">
+                    <p class="text-[11px] text-emerald-300">Estimasi Nilai Retribusi</p>
+                    <p id="preview-req-nominal" class="mt-1 text-xl font-extrabold text-emerald-400 tabular-nums">Rp 0</p>
+                  </div>
+                </div>
+                <p class="text-[11px] text-slate-400 mt-4 pt-3 border-t border-slate-800">
+                  Nomor seri 5-digit akan diterbitkan otomatis begitu permintaan Anda disetujui oleh Administrator.
+                </p>
+              </div>
+            </div>
+
+            <!-- Tabel 1 Petugas: Karcis Diterima & Pengembalian Sisa Karcis Sesuai Nomor Seri -->
+            <div class="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5 sm:p-6">
+              <div class="pb-4 mb-4 border-b border-slate-100">
+                <h3 class="text-base font-bold text-slate-900">Karcis Diterima &amp; Pengembalian Sisa Karcis (Sesuai Nomor Seri)</h3>
+                <p class="text-xs text-slate-500 mt-0.5">Klik tombol <strong>Kembalikan Sisa Karcis</strong> untuk melaporkan jumlah karcis yang digunakan dan mengembalikan sisa nomor seri yang belum terpakai</p>
+              </div>
+
+              <div class="hidden md:block overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                  <thead>
+                    <tr class="border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500 bg-slate-50/80">
+                      <th class="py-3 px-3.5">Tanggal</th>
+                      <th class="py-3 px-3.5">Jenis Fasilitas &amp; Tarif</th>
+                      <th class="py-3 px-3.5">Nomor Seri Diterima</th>
+                      <th class="py-3 px-3.5">Nomor Seri Digunakan / Terpakai</th>
+                      <th class="py-3 px-3.5">Nomor Seri Sisa Dikembalikan</th>
+                      <th class="py-3 px-3.5 text-right">Nilai Setoran (Rp)</th>
+                      <th class="py-3 px-3.5 text-center">Status Setoran</th>
+                      <th class="py-3 px-3.5 text-right">Pengembalian Sisa</th>
+                    </tr>
+                  </thead>
+                  <tbody id="user-dist-table-body" class="divide-y divide-slate-100 text-xs sm:text-sm"></tbody>
+                </table>
+              </div>
+              <div id="user-dist-mobile-cards" class="md:hidden space-y-3"></div>
+            </div>
+
+            <!-- Tabel 2 Petugas: Riwayat Status Pengajuan Permintaan Karcis Saya -->
+            <div class="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5 sm:p-6">
+              <div class="pb-4 mb-4 border-b border-slate-100">
+                <h3 class="text-base font-bold text-slate-900">Riwayat Pengajuan Permintaan Karcis Saya</h3>
+                <p class="text-xs text-slate-500 mt-0.5">Memantau status persetujuan atau penolakan dari Administrator</p>
+              </div>
+
+              <div class="hidden md:block overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                  <thead>
+                    <tr class="border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500 bg-slate-50/80">
+                      <th class="py-3 px-3.5">Tanggal Permintaan</th>
+                      <th class="py-3 px-3.5">Jenis Fasilitas</th>
+                      <th class="py-3 px-3.5">Jumlah Diminta</th>
+                      <th class="py-3 px-3.5">Keterangan Tugas</th>
+                      <th class="py-3 px-3.5 text-center">Status Persetujuan</th>
+                      <th class="py-3 px-3.5">Nomor Seri Diberikan / Catatan Admin</th>
+                    </tr>
+                  </thead>
+                  <tbody id="user-requests-table-body" class="divide-y divide-slate-100 text-xs sm:text-sm"></tbody>
+                </table>
+              </div>
+              <div id="user-requests-mobile-cards" class="md:hidden space-y-3"></div>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- ==========================================================================
+       MODAL A: PERSETUJUAN PERMINTAAN KARCIS OLEH ADMIN
+       ========================================================================== -->
+  <div id="modal-approve-request" class="no-print hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs modal-backdrop-enter">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full p-5 sm:p-6 modal-panel-enter">
+      <div class="flex items-start justify-between gap-3 pb-3.5 border-b border-slate-100">
+        <div>
+          <h3 class="text-lg font-semibold text-slate-900">Setujui Permintaan Karcis</h3>
+          <p class="text-xs text-slate-500 mt-0.5">Pilih stok yang dipakai; nomor seri dihitung otomatis</p>
+        </div>
+        <button type="button" id="btn-close-approve-modal" class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <div class="mt-4 rounded-xl bg-slate-50 border border-slate-200 p-3.5 text-xs space-y-1.5">
+        <div class="flex justify-between">
+          <span class="text-slate-500">Pemohon:</span>
+          <span id="approve-req-pemohon" class="font-semibold text-slate-900">&mdash;</span>
+        </div>
+        <div class="flex justify-between">
+          <span class="text-slate-500">Fasilitas:</span>
+          <span id="approve-req-fasilitas" class="font-semibold text-blue-700">&mdash;</span>
+        </div>
+        <div class="flex justify-between">
+          <span class="text-slate-500">Jumlah:</span>
+          <span id="approve-req-jumlah" class="font-semibold text-slate-900 tabular-nums">&mdash;</span>
+        </div>
+      </div>
+
+      <form id="form-approve-request" class="mt-4 space-y-4">
+        <input type="hidden" id="approve-req-id" />
+
+        <div>
+          <label for="approve-req-stock" class="block text-xs font-medium text-slate-700 mb-1.5">Dari Batch Stok *</label>
+          <select
+            id="approve-req-stock"
+            required
+            class="w-full px-3.5 py-2.5 text-xs sm:text-sm rounded-xl border border-slate-300 bg-white font-mono-seri focus:outline-none"
+          ></select>
+        </div>
+
+        <div class="rounded-xl bg-blue-50/70 border border-blue-200/80 p-4 space-y-2 text-xs">
+          <div class="flex justify-between">
+            <span class="text-slate-600">Nomor seri yang terbit:</span>
+            <span id="approve-req-preview-seri" class="font-mono-seri font-bold text-blue-700">&mdash;</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-slate-600">Nilai retribusi:</span>
+            <span id="approve-req-preview-nominal" class="font-bold text-emerald-700 tabular-nums">Rp 0</span>
+          </div>
+          <p id="approve-req-preview-warning" class="hidden text-rose-600 font-medium pt-1"></p>
+        </div>
+
+        <div class="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+          <button type="button" id="btn-cancel-approve-modal" class="px-4 py-2 rounded-xl border border-slate-300 text-xs sm:text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            Batal
+          </button>
+          <button type="submit" id="btn-submit-approve-req" class="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-semibold shadow-sm">
+            Setujui &amp; Keluarkan
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ==========================================================================
+       MODAL B: PENOLAKAN PERMINTAAN KARCIS OLEH ADMIN
+       ========================================================================== -->
+  <div id="modal-reject-request" class="no-print hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs modal-backdrop-enter">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-full p-5 sm:p-6 modal-panel-enter">
+      <div class="flex items-start justify-between gap-3 pb-3 border-b border-slate-100">
+        <h3 class="text-base font-bold text-slate-900">Tolak Permintaan Karcis</h3>
+        <button type="button" id="btn-close-reject-modal" class="p-1 rounded-lg text-slate-400 hover:text-slate-700">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+      <form id="form-reject-request" class="mt-4 space-y-4">
+        <input type="hidden" id="reject-req-id" />
+        <div>
+          <label for="reject-req-reason" class="block text-xs font-semibold text-slate-700 mb-1.5">Alasan Penolakan *</label>
+          <input
+            id="reject-req-reason"
+            type="text"
+            required
+            placeholder="Contoh: Sisa karcis periode sebelumnya belum dikembalikan"
+            class="w-full px-3.5 py-2.5 text-xs sm:text-sm rounded-xl border border-slate-300 focus:outline-none"
+          />
+        </div>
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button" id="btn-cancel-reject-modal" class="px-4 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-700">Batal</button>
+          <button type="submit" class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold">Tolak Permintaan</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ==========================================================================
+       MODAL 1: REKONSILIASI / PENGEMBALIAN SISA KARCIS SESUAI NOMOR SERI
+       ========================================================================== -->
+  <div id="modal-retur" class="no-print hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs modal-backdrop-enter">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-xl w-full max-h-[92vh] overflow-y-auto p-5 sm:p-6 modal-panel-enter">
+      <div class="flex items-start justify-between gap-3 pb-3.5 border-b border-slate-100">
+        <div>
+          <h3 id="modal-retur-title" class="text-lg font-semibold text-slate-900">Pengembalian Sisa &amp; Setoran</h3>
+          <p class="text-xs text-slate-500 mt-0.5">Masukkan jumlah karcis yang tidak terpakai</p>
+        </div>
+        <button type="button" id="btn-close-retur-modal" class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <div class="mt-4 rounded-xl bg-slate-50 border border-slate-200/90 p-3.5 text-xs space-y-2">
+        <div class="flex items-center justify-between">
+          <span class="text-slate-500">Petugas:</span>
+          <span id="retur-info-penerima" class="font-semibold text-slate-900">&mdash;</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-slate-500">Fasilitas &amp; Tarif:</span>
+          <span id="retur-info-fasilitas" class="font-semibold text-slate-800">&mdash;</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-slate-500">Nomor seri awal:</span>
+          <span id="retur-info-serikeluar" class="font-semibold font-mono-seri text-blue-700">&mdash;</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-slate-500">Jumlah awal:</span>
+          <span id="retur-info-jmlkeluar" class="font-semibold text-slate-900 tabular-nums">&mdash;</span>
+        </div>
+      </div>
+
+      <div id="retur-already-processed-banner" class="hidden mt-3 rounded-xl bg-amber-50 border border-amber-200 p-3 text-xs text-amber-900">
+        <strong>Info:</strong> Pengembalian sisa pada transaksi ini sudah pernah diproses sebelumnya.
+      </div>
+
+      <form id="form-retur" class="mt-4 space-y-4" novalidate>
+        <input type="hidden" id="retur-dist-id" />
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label for="retur-jumlah" class="block text-xs font-medium text-slate-700 mb-1.5">
+              Sisa Dikembalikan (Lembar) *
+            </label>
+            <input
+              id="retur-jumlah"
+              type="number"
+              min="0"
+              step="1"
+              required
+              value="0"
+              class="w-full px-3.5 py-2.5 text-base sm:text-sm rounded-xl border border-slate-300 font-mono-seri focus:outline-none focus:ring-2 focus:ring-blue-700/20 focus:border-blue-700"
+            />
+            <p class="text-[11px] text-slate-400 mt-1">Isi 0 jika semua karcis habis terpakai.</p>
+          </div>
+
+          <div id="retur-status-wrapper">
+            <label for="retur-status" class="block text-xs font-medium text-slate-700 mb-1.5">
+              Status Setoran *
+            </label>
+            <select
+              id="retur-status"
+              class="w-full px-3.5 py-2.5 text-base sm:text-sm rounded-xl border border-slate-300 bg-white font-semibold focus:outline-none"
+            >
+              <option value="Lunas Setor">Lunas Setor</option>
+              <option value="Belum Setor">Belum Setor</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Live Calculation Preview of Used vs Returned Serials -->
+        <div class="rounded-xl bg-slate-50 border border-slate-200 p-4 space-y-3 text-xs">
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <p class="text-slate-500">Terpakai:</p>
+              <p id="retur-preview-terjual-jml" class="text-sm font-bold text-slate-900 mt-0.5 tabular-nums">0 Lembar</p>
+              <p id="retur-preview-terjual-seri" class="text-[11px] font-mono-seri text-blue-700 mt-0.5">&mdash;</p>
+            </div>
+            <div>
+              <p class="text-slate-500">Sisa Dikembalikan:</p>
+              <p id="retur-preview-retur-jml" class="text-sm font-bold text-amber-700 mt-0.5 tabular-nums">0 Lembar</p>
+              <p id="retur-preview-retur-seri" class="text-[11px] font-mono-seri text-amber-600 mt-0.5">&mdash;</p>
+            </div>
+          </div>
+
+          <div class="pt-2.5 border-t border-slate-200 flex items-center justify-between">
+            <span class="text-slate-600 font-medium">Total Nilai Terpakai:</span>
+            <span id="retur-preview-nominal" class="text-base font-bold text-emerald-700 tabular-nums">Rp 0</span>
+          </div>
+
+          <div id="retur-preview-mechanism" class="rounded-lg bg-white border border-slate-200 p-2.5 text-xs text-slate-600 leading-relaxed"></div>
+        </div>
+
+        <div>
+          <label for="retur-catatan" class="block text-xs font-medium text-slate-700 mb-1.5">Catatan (Opsional)</label>
+          <input
+            id="retur-catatan"
+            type="text"
+            placeholder="Catatan singkat bila perlu"
+            class="w-full px-3.5 py-2 text-base sm:text-sm rounded-xl border border-slate-300 focus:outline-none"
+          />
+        </div>
+
+        <div class="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+          <button type="button" id="btn-cancel-retur-modal" class="px-4 py-2.5 rounded-xl border border-slate-300 text-xs sm:text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            Batal
+          </button>
+          <button type="submit" id="btn-submit-retur" class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-semibold shadow-sm">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+            <span>Simpan Pengembalian Seri</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ==========================================================================
+       MODAL 2: TAMBAH / EDIT MASTER JENIS FASILITAS (ADMIN)
+       ========================================================================== -->
+  <div id="modal-facility" class="no-print hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs modal-backdrop-enter">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-full p-5 sm:p-6 modal-panel-enter">
+      <div class="flex items-start justify-between gap-3 pb-3.5 border-b border-slate-100">
+        <div>
+          <h3 id="modal-facility-title" class="text-lg font-semibold text-slate-900">Tambah Fasilitas</h3>
+          <p class="text-xs text-slate-500 mt-0.5">Atur nama fasilitas, kode seri, dan tarif satuan</p>
+        </div>
+        <button type="button" id="btn-close-facility-modal" class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <form id="form-facility" class="mt-4 space-y-4" novalidate>
+        <input type="hidden" id="fac-id" />
+        <div>
+          <label for="fac-nama" class="block text-xs font-medium text-slate-700 mb-1.5">Nama Fasilitas *</label>
+          <input id="fac-nama" type="text" required placeholder="Contoh: Kolam Renang Anak" class="w-full px-3.5 py-2.5 text-base sm:text-sm rounded-xl border border-slate-300 focus:outline-none" />
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+          <div>
+            <label for="fac-kode" class="block text-xs font-medium text-slate-700 mb-1.5">Kode Seri *</label>
+            <input id="fac-kode" type="text" required maxlength="12" placeholder="Contoh: KRA" class="w-full px-3.5 py-2.5 text-base sm:text-sm rounded-xl border border-slate-300 font-mono-seri uppercase focus:outline-none" />
+          </div>
+          <div>
+            <label for="fac-tarif" class="block text-xs font-medium text-slate-700 mb-1.5">Tarif Satuan (Rp) *</label>
+            <input id="fac-tarif" type="number" min="0" step="100" required placeholder="5000" class="w-full px-3.5 py-2.5 text-base sm:text-sm rounded-xl border border-slate-300 font-mono-seri focus:outline-none" />
+          </div>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+          <div>
+            <label for="fac-batas" class="block text-xs font-medium text-slate-700 mb-1.5">Batas Stok Minimal (Lbr) *</label>
+            <input id="fac-batas" type="number" min="0" step="10" required placeholder="200" class="w-full px-3.5 py-2.5 text-base sm:text-sm rounded-xl border border-slate-300 font-mono-seri focus:outline-none" />
+          </div>
+          <div>
+            <label for="fac-active" class="block text-xs font-medium text-slate-700 mb-1.5">Status</label>
+            <select id="fac-active" class="w-full px-3.5 py-2.5 text-base sm:text-sm rounded-xl border border-slate-300 bg-white focus:outline-none">
+              <option value="true">Aktif</option>
+              <option value="false">Nonaktif</option>
+            </select>
+          </div>
+        </div>
+        <div class="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+          <button type="button" id="btn-cancel-facility-modal" class="px-4 py-2 rounded-xl border border-slate-300 text-xs sm:text-sm font-semibold text-slate-700 hover:bg-slate-50">Batal</button>
+          <button type="submit" id="btn-submit-facility" class="px-5 py-2 rounded-xl bg-blue-700 hover:bg-blue-800 text-white text-xs sm:text-sm font-semibold shadow-sm">Simpan Fasilitas</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ==========================================================================
+       MODAL 3: AUDIT TRAIL / LOG AKTIVITAS LENGKAP
+       ========================================================================== -->
+  <div id="modal-logs" class="no-print hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs modal-backdrop-enter">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-3xl w-full max-h-[88vh] flex flex-col p-5 sm:p-6 modal-panel-enter">
+      <div class="flex items-start justify-between gap-4 pb-3.5 border-b border-slate-100 shrink-0">
+        <div>
+          <h3 class="text-lg font-bold text-slate-900">Log Aktivitas (<span class="kpi-year-label">2026</span>)</h3>
+          <p class="text-xs text-slate-500 mt-0.5">Riwayat aktivitas pengguna di dalam sistem</p>
+        </div>
+        <button type="button" id="btn-close-logs-modal" class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <div class="my-3 shrink-0">
+        <input
+          id="filter-logs-search"
+          type="search"
+          placeholder="Cari aksi, detail aktivitas, atau email pengguna..."
+          class="w-full px-3.5 py-2 text-xs sm:text-sm rounded-xl border border-slate-300 focus:outline-none"
+        />
+      </div>
+
+      <div id="modal-logs-body" class="flex-1 overflow-y-auto divide-y divide-slate-100 text-xs pr-1"></div>
+    </div>
+  </div>
+
+  <!-- ==========================================================================
+       MODAL 4: REUSABLE CUSTOM CONFIRMATION DIALOG
+       ========================================================================== -->
+  <div id="modal-confirm" class="no-print hidden fixed inset-0 z-[65] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs modal-backdrop-enter">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-full p-6 modal-panel-enter">
+      <div class="flex items-start gap-3.5">
+        <div id="confirm-modal-icon" class="w-10 h-10 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center shrink-0">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </div>
+        <div class="flex-1">
+          <h3 id="confirm-modal-title" class="text-base font-bold text-slate-900">Konfirmasi Tindakan</h3>
+          <p id="confirm-modal-message" class="text-xs sm:text-sm text-slate-600 mt-1 leading-relaxed"></p>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-2.5 mt-6 pt-3 border-t border-slate-100">
+        <button type="button" id="btn-confirm-cancel" class="px-4 py-2 rounded-xl border border-slate-300 text-xs sm:text-sm font-semibold text-slate-700 hover:bg-slate-50">
+          Batal
+        </button>
+        <button type="button" id="btn-confirm-ok" class="px-4 py-2 rounded-xl bg-blue-700 hover:bg-blue-800 text-white text-xs sm:text-sm font-semibold shadow-sm">
+          Ya, Lanjutkan
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Application Logic (ES6 Module) -->
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>
