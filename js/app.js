@@ -6627,9 +6627,9 @@ function setupAndroidNativeAndPwaDashboard() {
   ) {
     let swRefreshing = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (!swRefreshing && !location.search.includes('v=1.2.4')) {
+      if (!swRefreshing && !location.search.includes('v=1.2.5')) {
         swRefreshing = true;
-        window.location.replace('./dashboard.html?v=1.2.4');
+        window.location.replace('./dashboard.html?v=1.2.5');
       }
     });
     navigator.serviceWorker

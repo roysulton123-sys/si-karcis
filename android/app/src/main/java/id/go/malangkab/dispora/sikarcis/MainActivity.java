@@ -40,8 +40,8 @@ import java.io.FileOutputStream;
 
 public class MainActivity extends AppCompatActivity {
 
-    private static final String LIVE_WEB_URL = "https://si-karcis.netlify.app/?v=1.2.4";
-    private static final String LIVE_WEB_HOST = "si-karcis.netlify.app";
+    private static final String LIVE_WEB_URL = "https://si-karcisdspr.netlify.app/?v=1.2.5";
+    private static final String LIVE_WEB_HOST = "si-karcisdspr.netlify.app";
     private static final String FALLBACK_LOCAL_URL = "https://appassets.androidplatform.net/assets/www/index.html";
     private WebView webView;
     private ConnectivityManager connectivityManager;
@@ -84,7 +84,7 @@ public class MainActivity extends AppCompatActivity {
         settings.setSupportZoom(false);
         settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
-        settings.setUserAgentString(settings.getUserAgentString() + " SIKarcisAndroid/1.2.4");
+        settings.setUserAgentString(settings.getUserAgentString() + " SIKarcisAndroid/1.2.5");
 
         CookieManager cookieManager = CookieManager.getInstance();
         cookieManager.setAcceptCookie(true);
