@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sikarcis-shell-v3';
+const CACHE_NAME = 'sikarcis-shell-v5';
 const PRECACHE_URLS = [
   './',
   './index.html',
