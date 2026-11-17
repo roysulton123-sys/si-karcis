@@ -70,6 +70,8 @@ const LS_STOCK_KEY = 'sikarcis_local_stock_v1';
 const LS_DISTRIBUSI_KEY = 'sikarcis_local_distribusi_v1';
 const LS_REQUESTS_KEY = 'sikarcis_local_requests_v1';
 
+const STOCK_LOW_THRESHOLD_LEMBAR = 200; // Peringatan stok menipis: di bawah 2 bendel (< 200 lembar)
+
 /**
  * 7 Data Awal Master Jenis Fasilitas (Auto-Seeding)
  */
@@ -130,7 +132,7 @@ const state = {
     adminReq: { status: 'ALL' },
     dist: { search: '', facilityId: 'ALL', status: 'ALL', page: 1, perPage: 10 },
     stok: { search: '', facilityId: 'ALL', status: 'ALL', page: 1, perPage: 10 },
-    fac: { search: '', status: 'ALL' },
+    fac: { search: '' },
     users: { search: '', status: 'ALL' },
     rep: { type: 'ALL', startDate: '', endDate: '', facilityId: 'ALL', status: 'ALL' },
     logsSearch: ''
@@ -1630,7 +1632,6 @@ function suggestKodeFromFacilityName(name) {
 }
 
 function populateFacilitySelects() {
-  const activeFacilities = state.facilities.filter((f) => f.isActive !== false);
   const allFacilities = state.facilities;
   const formatFacilityOptionName = (fac) =>
     hasDuplicateFacilityName(fac.namaFasilitas) && fac.kodeDefault
@@ -1643,13 +1644,13 @@ function populateFacilitySelects() {
     if (!sel) return;
     const prevVal = sel.value;
     sel.innerHTML = '<option value="">Pilih fasilitas...</option>';
-    activeFacilities.forEach((fac) => {
+    allFacilities.forEach((fac) => {
       const opt = document.createElement('option');
       opt.value = fac.id;
       opt.textContent = `${formatFacilityOptionName(fac)} (${formatRupiah(fac.tarifSatuan)} / lbr)`;
       sel.appendChild(opt);
     });
-    if (prevVal && activeFacilities.some((f) => f.id === prevVal)) {
+    if (prevVal && allFacilities.some((f) => f.id === prevVal)) {
       sel.value = prevVal;
     }
   });
@@ -1697,7 +1698,7 @@ function populateFacilitySelects() {
     allFacilities.forEach((fac) => {
       const opt = document.createElement('option');
       opt.value = fac.id;
-      opt.textContent = `${formatFacilityOptionName(fac)}${fac.isActive === false ? ' (Nonaktif)' : ''}`;
+      opt.textContent = formatFacilityOptionName(fac);
       sel.appendChild(opt);
     });
     if (prevVal === 'ALL' || allFacilities.some((f) => f.id === prevVal)) {
@@ -1732,7 +1733,7 @@ function renderAllViews() {
   if (state.currentUser?.role === 'admin') {
     populatePetugasDatalist();
     renderDashboardAlerts();
-    renderDashboardKPIsAndLowStock();
+    renderDashboardKPIs();
     updateCharts();
     renderAuditLogsUI();
     renderAdminRequestsQueue();
@@ -1823,19 +1824,7 @@ function renderDashboardAlerts() {
   alertsContainer.innerHTML = cards.join('');
 }
 
-function getStockMapByFacility() {
-  const map = new Map();
-  state.facilities.forEach((f) => map.set(f.id, 0));
-  state.stocks.forEach((stk) => {
-    const cur = map.get(stk.facilityId) || 0;
-    map.set(stk.facilityId, cur + (Number(stk.sisaStok) || 0));
-  });
-  return map;
-}
-
-function renderDashboardKPIsAndLowStock() {
-  const stockByFac = getStockMapByFacility();
-
+function renderDashboardKPIs() {
   // 1. Total Stok Gudang
   const totalSisaStok = state.stocks.reduce((sum, s) => sum + (Number(s.sisaStok) || 0), 0);
   const stokBdl = toBendelLembar(totalSisaStok);
@@ -1874,40 +1863,10 @@ function renderDashboardKPIsAndLowStock() {
   if (kpiPendapatanLunas) kpiPendapatanLunas.textContent = formatRupiah(totalLunas);
   if (kpiPendapatanBelum) kpiPendapatanBelum.textContent = formatRupiah(totalBelum);
 
-  // 4. Evaluasi Stok Menipis per Fasilitas Aktif
-  const lowStockList = [];
-  state.facilities
-    .filter((f) => f.isActive !== false)
-    .forEach((f) => {
-      const sisa = stockByFac.get(f.id) || 0;
-      const batas = Number(f.batasMinimum) || 0;
-      if (sisa <= batas) {
-        lowStockList.push({
-          ...f,
-          sisa,
-          batas,
-          isEmpty: sisa === 0
-        });
-      }
-    });
-
-  const lowCount = lowStockList.length;
-  const kpiLowUtama = document.getElementById('kpi-lowstock-utama');
-  const kpiLowSub = document.getElementById('kpi-lowstock-sub');
+  // Badge notifikasi pada menu Stok Karcis & lonceng topbar jika ada stok terdaftar < 2 bendel (< 200 lembar)
+  const lowCount = getRegisteredStockSummaries().filter((item) => item.isLow).length;
   const navLowBadge = document.getElementById('nav-badge-lowstock');
   const topbarLowBadge = document.getElementById('topbar-lowstock-badge');
-
-  if (kpiLowUtama) {
-    kpiLowUtama.textContent = `${lowCount} Fasilitas`;
-    kpiLowUtama.className =
-      lowCount > 0
-        ? 'text-xl sm:text-2xl font-extrabold text-rose-600 mt-1.5 tabular-nums'
-        : 'text-xl sm:text-2xl font-extrabold text-emerald-600 mt-1.5 tabular-nums';
-  }
-  if (kpiLowSub) {
-    kpiLowSub.textContent = lowCount > 0 ? 'Perlu penambahan stok' : 'Seluruh stok aman';
-  }
-
   [navLowBadge, topbarLowBadge].forEach((badge) => {
     if (!badge) return;
     if (lowCount > 0) {
@@ -1917,52 +1876,6 @@ function renderDashboardKPIsAndLowStock() {
       badge.classList.add('hidden');
     }
   });
-
-  // Panel Peringatan Stok Menipis
-  const lowPanel = document.getElementById('low-stock-panel');
-  if (!lowPanel) return;
-
-  if (lowCount === 0) {
-    lowPanel.className = 'hidden';
-    lowPanel.innerHTML = '';
-  } else {
-    lowPanel.className = 'rounded-2xl border border-rose-200 bg-rose-50/80 p-4 sm:p-5 space-y-3';
-    const badgesHtml = lowStockList
-      .map((item) => {
-        const bdl = toBendelLembar(item.sisa);
-        const pillClass = item.isEmpty
-          ? 'bg-rose-600 text-white'
-          : 'bg-amber-500 text-slate-950';
-        const statusLabel = item.isEmpty ? 'HABIS (0)' : `MENIPIS (${bdl.shortFormatted})`;
-        return `
-          <div class="flex items-center justify-between gap-2 bg-white rounded-xl border border-rose-200/90 px-3.5 py-2.5 shadow-2xs">
-            <div class="min-w-0">
-              <p class="text-xs font-bold text-slate-900 truncate">${escapeHtml(item.namaFasilitas)}</p>
-              <p class="text-[11px] text-slate-500">Min: ${formatNumber(item.batas)} Lbr • Sisa: <strong>${formatNumber(item.sisa)} Lbr</strong></p>
-            </div>
-            <span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold ${pillClass} shrink-0">${statusLabel}</span>
-          </div>
-        `;
-      })
-      .join('');
-
-    lowPanel.innerHTML = `
-      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-        <div class="flex items-center gap-2.5">
-          <span class="w-2.5 h-2.5 rounded-full bg-rose-600 animate-ping"></span>
-          <h3 class="text-xs sm:text-sm font-extrabold text-rose-950 uppercase tracking-wide">
-            Peringatan Stok Karcis Menipis / Habis (${lowCount} Fasilitas)
-          </h3>
-        </div>
-        <button type="button" data-jump-nav="stok" class="self-start sm:self-auto text-xs font-bold text-rose-700 hover:text-rose-900 underline">
-          + Tambah Batch Stok Sekarang &rarr;
-        </button>
-      </div>
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-        ${badgesHtml}
-      </div>
-    `;
-  }
 }
 
 /* ==========================================================================
@@ -2921,11 +2834,10 @@ function populateUserReturBatchSelect(myDistsArg) {
     selectEl.appendChild(grpBatch);
   }
 
-  const activeFacs = state.facilities.filter((f) => f.isActive !== false);
-  if (activeFacs.length > 0) {
+  if (state.facilities.length > 0) {
     const grpFac = document.createElement('optgroup');
     grpFac.label = 'Pengembalian Karcis Berdasarkan Jenis Fasilitas';
-    activeFacs.forEach((f) => {
+    state.facilities.forEach((f) => {
       const opt = document.createElement('option');
       opt.value = `fac:${f.id}`;
       opt.textContent = `${f.namaFasilitas} (${formatRupiah(f.tarifSatuan)} / lembar)`;
@@ -4586,96 +4498,219 @@ export function findOverlappingStockBatch(stocksList, facilityId, kodeHuruf, sta
   );
 }
 
-function renderStokSummaryAndPreview() {
-  const cardsEl = document.getElementById('stok-facility-summary-cards');
-  if (cardsEl) {
-    const facById = new Map(state.facilities.map((f) => [f.id, f]));
+function getRegisteredStockSummaries() {
+  const facById = new Map(state.facilities.map((f) => [f.id, f]));
+  const boardMap = new Map();
 
-    // Papan informasi dipisahkan jika nama fasilitas ATAU nomor/kode serinya berbeda;
-    // hanya batch dengan nama fasilitas, kode seri, dan tarif yang sama yang digabung menjadi satu
-    const boardMap = new Map();
-    state.stocks.forEach((stk) => {
-      const linkedFac = facById.get(stk.facilityId) || null;
-      const displayName = String(linkedFac?.namaFasilitas || stk.jenisFasilitas || '').trim();
-      const nameKey = normalizeFacilityName(displayName);
-      if (!nameKey) return;
+  // Papan informasi dipisahkan jika nama fasilitas, kode seri, atau tarifnya berbeda
+  state.stocks.forEach((stk) => {
+    const linkedFac = facById.get(stk.facilityId) || null;
+    const displayName = String(linkedFac?.namaFasilitas || stk.jenisFasilitas || '').trim();
+    const nameKey = normalizeFacilityName(displayName);
+    if (!nameKey) return;
 
-      const kodeSeri = normalizeKodeSeri(stk.kodeHuruf || linkedFac?.kodeDefault || '') || 'KRC';
-      const matchedFac =
-        linkedFac ||
-        findFacilityByNameAndKode(displayName, kodeSeri) ||
-        findFacilityByName(displayName) ||
-        null;
+    const kodeSeri = normalizeKodeSeri(stk.kodeHuruf || linkedFac?.kodeDefault || '') || 'KRC';
+    const matchedFac =
+      linkedFac ||
+      findFacilityByNameAndKode(displayName, kodeSeri) ||
+      findFacilityByName(displayName) ||
+      null;
 
-      const resolvedTarif =
-        stk.tarifSatuan !== undefined && stk.tarifSatuan !== null
-          ? Math.max(0, Number(stk.tarifSatuan) || 0)
-          : Math.max(0, Number(linkedFac?.tarifSatuan ?? matchedFac?.tarifSatuan ?? 0) || 0);
+    const resolvedTarif =
+      stk.tarifSatuan !== undefined && stk.tarifSatuan !== null
+        ? Math.max(0, Number(stk.tarifSatuan) || 0)
+        : Math.max(0, Number(linkedFac?.tarifSatuan ?? matchedFac?.tarifSatuan ?? 0) || 0);
 
-      const groupKey = `${nameKey}__${kodeSeri}__${resolvedTarif}`;
-      const existing = boardMap.get(groupKey);
-      const stkSisa = Number(stk.sisaStok) || 0;
-      const stkSisaMulai = Number(stk.angkaSisaMulai) || 0;
-      const stkSampai = Number(stk.angkaSampai) || 0;
+    const groupKey = `${nameKey}__${kodeSeri}__${resolvedTarif}`;
+    const existing = boardMap.get(groupKey);
+    const stkSisa = Number(stk.sisaStok) || 0;
+    const stkSisaMulai = Number(stk.angkaSisaMulai) || 0;
+    const stkSampai = Number(stk.angkaSampai) || 0;
 
-      if (existing) {
-        existing.sisa += stkSisa;
-        existing.totalAwal += Number(stk.totalAwal) || 0;
-        existing.batchCount += 1;
-        if (stkSisa > 0 && stkSisaMulai > 0 && stkSampai >= stkSisaMulai) {
-          existing.minSisaMulai =
-            existing.minSisaMulai > 0 ? Math.min(existing.minSisaMulai, stkSisaMulai) : stkSisaMulai;
-          existing.maxSampai = Math.max(existing.maxSampai, stkSampai);
-        }
-      } else {
-        boardMap.set(groupKey, {
-          key: groupKey,
-          namaFasilitas: matchedFac?.namaFasilitas || displayName,
-          kodeDefault: kodeSeri,
-          tarifSatuan: resolvedTarif,
-          batasMinimum: Number(matchedFac?.batasMinimum ?? 200) || 0,
-          sisa: stkSisa,
-          totalAwal: Number(stk.totalAwal) || 0,
-          batchCount: 1,
-          minSisaMulai: stkSisa > 0 && stkSisaMulai > 0 && stkSampai >= stkSisaMulai ? stkSisaMulai : 0,
-          maxSampai: stkSisa > 0 && stkSisaMulai > 0 && stkSampai >= stkSisaMulai ? stkSampai : 0
-        });
+    if (existing) {
+      existing.sisa += stkSisa;
+      existing.totalAwal += Number(stk.totalAwal) || 0;
+      existing.batchCount += 1;
+      if (stkSisa > 0 && stkSisaMulai > 0 && stkSampai >= stkSisaMulai) {
+        existing.minSisaMulai =
+          existing.minSisaMulai > 0 ? Math.min(existing.minSisaMulai, stkSisaMulai) : stkSisaMulai;
+        existing.maxSampai = Math.max(existing.maxSampai, stkSampai);
       }
-    });
+    } else {
+      boardMap.set(groupKey, {
+        key: groupKey,
+        namaFasilitas: matchedFac?.namaFasilitas || displayName,
+        kodeDefault: kodeSeri,
+        tarifSatuan: resolvedTarif,
+        sisa: stkSisa,
+        totalAwal: Number(stk.totalAwal) || 0,
+        batchCount: 1,
+        minSisaMulai: stkSisa > 0 && stkSisaMulai > 0 && stkSampai >= stkSisaMulai ? stkSisaMulai : 0,
+        maxSampai: stkSisa > 0 && stkSisaMulai > 0 && stkSampai >= stkSisaMulai ? stkSampai : 0
+      });
+    }
+  });
 
-    const boardItems = Array.from(boardMap.values()).sort((a, b) => {
+  return Array.from(boardMap.values())
+    .map((item) => ({
+      ...item,
+      isEmpty: item.sisa === 0,
+      isLow: item.sisa < STOCK_LOW_THRESHOLD_LEMBAR
+    }))
+    .sort((a, b) => {
       const cmpName = String(a.namaFasilitas || '').localeCompare(String(b.namaFasilitas || ''), 'id');
       if (cmpName !== 0) return cmpName;
       const cmpKode = String(a.kodeDefault || '').localeCompare(String(b.kodeDefault || ''), 'id');
       if (cmpKode !== 0) return cmpKode;
       return (a.tarifSatuan || 0) - (b.tarifSatuan || 0);
     });
+}
 
+function prefillStockForm({ namaFasilitas, kodeHuruf, tarifSatuan }) {
+  const nameInp = document.getElementById('stok-facility-name');
+  const tarifInp = document.getElementById('stok-tarif');
+  const kodeInp = document.getElementById('stok-kode');
+  const formEl = document.getElementById('form-stok');
+  if (!nameInp || !tarifInp || !kodeInp) return;
+
+  resetStokFormHelperState();
+  nameInp.value = namaFasilitas || '';
+  kodeInp.value = normalizeKodeSeri(kodeHuruf || '');
+  tarifInp.value =
+    tarifSatuan !== undefined && tarifSatuan !== null ? String(Math.max(0, Number(tarifSatuan) || 0)) : '';
+
+  if (kodeInp.value) kodeInp.dataset.manualEdited = 'true';
+  if (tarifInp.value !== '') tarifInp.dataset.manualEdited = 'true';
+
+  switchView('stok');
+  handleStokFacilityNameChange({ forceSuggest: true });
+
+  const mulaiInp = document.getElementById('stok-mulai');
+  if (mulaiInp && !mulaiInp.value) {
+    suggestNextStockSerial();
+  }
+  if (tarifSatuan !== undefined && tarifSatuan !== null) {
+    tarifInp.value = String(Math.max(0, Number(tarifSatuan) || 0));
+    tarifInp.dataset.manualEdited = 'true';
+    renderStokSummaryAndPreview();
+  }
+  if (formEl) {
+    formEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+
+function renderStokSummaryAndPreview() {
+  const boardItems = getRegisteredStockSummaries();
+  const lowItems = boardItems.filter((item) => item.isLow);
+
+  const warningPanel = document.getElementById('stok-low-warning-panel');
+  if (warningPanel) {
+    if (lowItems.length === 0) {
+      warningPanel.className = 'hidden';
+      warningPanel.innerHTML = '';
+    } else {
+      const hasEmpty = lowItems.some((item) => item.isEmpty);
+      warningPanel.className = `rounded-2xl border ${
+        hasEmpty ? 'border-rose-200 bg-rose-50/80' : 'border-amber-300 bg-amber-50/80'
+      } p-4 sm:p-5 space-y-3`;
+
+      const itemsHtml = lowItems
+        .map((item) => {
+          const bdl = toBendelLembar(item.sisa);
+          const pillClass = item.isEmpty
+            ? 'bg-rose-600 text-white'
+            : 'bg-amber-500 text-slate-950';
+          const pillText = item.isEmpty ? 'Habis (0)' : '< 2 Bendel';
+          return `
+            <div class="flex items-center justify-between gap-2.5 bg-white rounded-xl border ${
+              item.isEmpty ? 'border-rose-200' : 'border-amber-200'
+            } px-3.5 py-2.5 shadow-2xs">
+              <div class="min-w-0">
+                <div class="flex items-center gap-1.5">
+                  <p class="text-xs font-bold text-slate-900 truncate">${escapeHtml(item.namaFasilitas)}</p>
+                  <span class="px-1.5 py-0.5 rounded text-[10px] font-mono-seri font-semibold bg-slate-100 text-slate-700 border border-slate-200 shrink-0">${escapeHtml(item.kodeDefault)}</span>
+                </div>
+                <p class="text-[11px] text-slate-600 mt-0.5 tabular-nums">
+                  Sisa: <strong class="${item.isEmpty ? 'text-rose-600' : 'text-amber-700'}">${bdl.shortFormatted}</strong> (${formatNumber(item.sisa)} Lbr)
+                </p>
+              </div>
+              <div class="flex items-center gap-1.5 shrink-0">
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold ${pillClass}">${pillText}</span>
+                <button
+                  type="button"
+                  data-prefill-stok-name="${escapeHtml(item.namaFasilitas)}"
+                  data-prefill-stok-kode="${escapeHtml(item.kodeDefault)}"
+                  data-prefill-stok-tarif="${escapeHtml(String(item.tarifSatuan))}"
+                  class="px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-[11px] font-semibold transition"
+                >
+                  + Tambah
+                </button>
+              </div>
+            </div>
+          `;
+        })
+        .join('');
+
+      warningPanel.innerHTML = `
+        <div class="flex items-center justify-between gap-2">
+          <div class="flex items-center gap-2.5">
+            <span class="w-2.5 h-2.5 rounded-full ${hasEmpty ? 'bg-rose-600' : 'bg-amber-500'} animate-ping"></span>
+            <h3 class="text-xs sm:text-sm font-extrabold ${
+              hasEmpty ? 'text-rose-950' : 'text-amber-950'
+            } uppercase tracking-wide">
+              Peringatan Stok Di Bawah 2 Bendel / 200 Lembar (${lowItems.length} Stok)
+            </h3>
+          </div>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+          ${itemsHtml}
+        </div>
+      `;
+    }
+  }
+
+  const cardsEl = document.getElementById('stok-facility-summary-cards');
+  if (cardsEl) {
     if (boardItems.length === 0) {
       cardsEl.innerHTML = `
         <div class="col-span-full bg-white rounded-2xl border border-dashed border-slate-300 p-5 text-center text-xs sm:text-sm text-slate-500">
-          Belum ada karcis yang didaftarkan pada tahun anggaran ini. Tambahkan fasilitas dan nomor seri karcis pada formulir di bawah untuk menampilkan papan informasi stok.
+          Belum ada stok karcis pada tahun anggaran ini.
         </div>
       `;
     } else {
       cardsEl.innerHTML = boardItems
         .map((item) => {
           const bdl = toBendelLembar(item.sisa);
-          const isLow = item.sisa <= item.batasMinimum;
+          const cardStyle = item.isEmpty
+            ? 'border-rose-300 bg-rose-50/40'
+            : item.isLow
+              ? 'border-amber-300 bg-amber-50/40'
+              : 'border-slate-200/90 bg-white';
+          const qtyColor = item.isEmpty
+            ? 'text-rose-600'
+            : item.isLow
+              ? 'text-amber-700'
+              : 'text-slate-900';
+          const lowBadge = item.isEmpty
+            ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-600 text-white shrink-0">Habis</span>'
+            : item.isLow
+              ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500 text-slate-950 shrink-0">&lt; 2 Bendel</span>'
+              : '';
           const seriRangeLine =
             item.minSisaMulai > 0 && item.maxSampai >= item.minSisaMulai
               ? `<p class="text-[11px] font-mono-seri text-slate-400 mt-0.5 truncate">Seri: ${escapeHtml(formatSeriRange(item.kodeDefault, item.minSisaMulai, item.maxSampai))}</p>`
               : '';
           return `
-            <div class="bg-white rounded-2xl border ${
-              isLow ? 'border-amber-300 bg-amber-50/30' : 'border-slate-200/90'
-            } p-4 shadow-2xs flex flex-col justify-between">
+            <div class="rounded-2xl border ${cardStyle} p-4 shadow-2xs flex flex-col justify-between">
               <div class="flex items-start justify-between gap-2">
                 <p class="text-xs font-semibold text-slate-800 truncate">${escapeHtml(item.namaFasilitas)}</p>
                 <span class="px-1.5 py-0.5 rounded text-[10px] font-mono-seri font-semibold bg-slate-100 text-slate-700 border border-slate-200 shrink-0">${escapeHtml(item.kodeDefault || 'KRC')}</span>
               </div>
               <div class="mt-2">
-                <p class="text-base font-bold ${isLow ? 'text-rose-600' : 'text-slate-900'} tabular-nums">${bdl.shortFormatted}</p>
+                <div class="flex items-center justify-between gap-2">
+                  <p class="text-base font-bold ${qtyColor} tabular-nums">${bdl.shortFormatted}</p>
+                  ${lowBadge}
+                </div>
                 <p class="text-[11px] text-slate-500 tabular-nums">${formatNumber(item.sisa)} Lembar • ${formatRupiah(item.tarifSatuan)}/lbr</p>
                 ${seriRangeLine}
               </div>
@@ -5076,9 +5111,11 @@ function renderStokTable() {
   const q = search.trim().toLowerCase();
 
   const filtered = state.stocks.filter((s) => {
+    const sisaNum = Number(s.sisaStok) || 0;
     if (facilityId !== 'ALL' && s.facilityId !== facilityId) return false;
-    if (status === 'AVAILABLE' && Number(s.sisaStok) <= 0) return false;
-    if (status === 'EMPTY' && Number(s.sisaStok) > 0) return false;
+    if (status === 'AVAILABLE' && sisaNum <= 0) return false;
+    if (status === 'LOW' && sisaNum >= STOCK_LOW_THRESHOLD_LEMBAR) return false;
+    if (status === 'EMPTY' && sisaNum > 0) return false;
     if (status === 'RETUR' && !s.isReturBatch) return false;
     if (!q) return true;
     const rangeStr = formatSeriRange(s.kodeHuruf, s.angkaMulai, s.angkaSampai).toLowerCase();
@@ -5135,6 +5172,15 @@ function renderStokTable() {
         ? '<span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-800 border border-amber-200">Stok Retur</span>'
         : '<span class="px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-blue-50 text-blue-700 border border-blue-200">Stok Utama</span>';
 
+      const sisaWarnBadge =
+        sisa === 0
+          ? '<span class="ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-700 border border-rose-200">Habis</span>'
+          : sisa < STOCK_LOW_THRESHOLD_LEMBAR
+            ? '<span class="ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">&lt; 2 Bdl</span>'
+            : '';
+      const sisaTextColor =
+        sisa === 0 ? 'text-rose-600' : sisa < STOCK_LOW_THRESHOLD_LEMBAR ? 'text-amber-700' : 'text-emerald-700';
+
       return `
         <tr class="hover:bg-slate-50/80 transition">
           <td class="py-3 px-3.5">
@@ -5151,7 +5197,7 @@ function renderStokTable() {
             <span class="block text-[11px] text-slate-500">${formatNumber(totalAwal)} Lembar</span>
           </td>
           <td class="py-3 px-3.5 tabular-nums">
-            <span class="font-bold ${sisa > 0 ? 'text-emerald-700' : 'text-rose-600'}">${bdlSisa.shortFormatted}</span>
+            <span class="font-bold ${sisaTextColor}">${bdlSisa.shortFormatted}</span>${sisaWarnBadge}
             <span class="block text-[11px] text-slate-500">${formatNumber(sisa)} Lembar</span>
           </td>
           <td class="py-3 px-3.5 text-right">
@@ -5173,6 +5219,14 @@ function renderStokTable() {
       const sisa = Number(s.sisaStok) || 0;
       const bdlAwal = toBendelLembar(totalAwal);
       const bdlSisa = toBendelLembar(sisa);
+      const sisaWarnBadge =
+        sisa === 0
+          ? '<span class="ml-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-700">Habis</span>'
+          : sisa < STOCK_LOW_THRESHOLD_LEMBAR
+            ? '<span class="ml-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">&lt; 2 Bdl</span>'
+            : '';
+      const sisaTextColor =
+        sisa === 0 ? 'text-rose-600' : sisa < STOCK_LOW_THRESHOLD_LEMBAR ? 'text-amber-700' : 'text-emerald-700';
       return `
         <div class="rounded-xl border border-slate-200 p-4 space-y-2 bg-white">
           <div class="flex items-start justify-between">
@@ -5192,7 +5246,7 @@ function renderStokTable() {
             </div>
             <div>
               <span class="text-slate-500 block text-[11px]">Sisa Stok</span>
-              <strong class="${sisa > 0 ? 'text-emerald-700' : 'text-rose-600'}">${bdlSisa.shortFormatted}</strong>
+              <strong class="${sisaTextColor}">${bdlSisa.shortFormatted}</strong>${sisaWarnBadge}
               <span class="block text-[11px] text-slate-500">${formatNumber(sisa)} Lembar</span>
             </div>
           </div>
@@ -5245,14 +5299,9 @@ function renderFacilitiesTable() {
   const mobileCards = document.getElementById('fac-mobile-cards');
   if (!tbody || !mobileCards) return;
 
-  const stockByFac = getStockMapByFacility();
   const q = state.filters.fac.search.trim().toLowerCase();
-  const statusFilter = state.filters.fac.status;
 
   const filtered = state.facilities.filter((f) => {
-    const active = f.isActive !== false;
-    if (statusFilter === 'ACTIVE' && !active) return false;
-    if (statusFilter === 'INACTIVE' && active) return false;
     if (!q) return true;
     return (
       String(f.namaFasilitas || '').toLowerCase().includes(q) ||
@@ -5263,7 +5312,7 @@ function renderFacilitiesTable() {
   if (filtered.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="7" class="py-10 text-center text-slate-400">Tidak ada jenis fasilitas yang sesuai filter.</td>
+        <td colspan="4" class="py-10 text-center text-slate-400">Tidak ada jenis fasilitas yang sesuai filter.</td>
       </tr>
     `;
     mobileCards.innerHTML = `<div class="py-8 text-center text-slate-400 text-xs">Tidak ada fasilitas.</div>`;
@@ -5272,13 +5321,6 @@ function renderFacilitiesTable() {
 
   tbody.innerHTML = filtered
     .map((f) => {
-      const active = f.isActive !== false;
-      const sisa = stockByFac.get(f.id) || 0;
-      const bdl = toBendelLembar(sisa);
-      const statusPill = active
-        ? '<span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">Aktif</span>'
-        : '<span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-500 border border-slate-200">Nonaktif</span>';
-
       return `
         <tr class="hover:bg-slate-50/80 transition">
           <td class="py-3 px-4 font-bold text-slate-900">${escapeHtml(f.namaFasilitas)}</td>
@@ -5286,23 +5328,16 @@ function renderFacilitiesTable() {
             <span class="px-2.5 py-0.5 rounded bg-blue-50 text-blue-800 border border-blue-200 font-mono-seri font-bold text-xs">${escapeHtml(f.kodeDefault)}</span>
           </td>
           <td class="py-3 px-4 text-right font-extrabold text-slate-900 tabular-nums">${formatRupiah(f.tarifSatuan)}</td>
-          <td class="py-3 px-4 text-right font-mono-seri text-slate-600 tabular-nums">${formatNumber(f.batasMinimum)} Lbr</td>
-          <td class="py-3 px-4 text-right tabular-nums">
-            <span class="font-bold text-slate-900">${bdl.shortFormatted}</span>
-            <span class="block text-[11px] text-slate-500">${formatNumber(sisa)} Lbr</span>
-          </td>
-          <td class="py-3 px-4 text-center">${statusPill}</td>
           <td class="py-3 px-4 text-right whitespace-nowrap">
             <div class="inline-flex items-center gap-1.5">
+              <button type="button" data-use-fac-stok="${escapeHtml(f.id)}" class="px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold transition">
+                + Daftarkan Stok
+              </button>
               <button type="button" data-edit-fac="${escapeHtml(f.id)}" class="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-700 text-xs font-semibold transition">
                 Edit
               </button>
-              <button type="button" data-toggle-fac="${escapeHtml(f.id)}" class="px-2.5 py-1.5 rounded-xl ${
-        active
-          ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200'
-          : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200'
-      } text-xs font-semibold transition">
-                ${active ? 'Nonaktifkan' : 'Aktifkan'}
+              <button type="button" data-delete-fac="${escapeHtml(f.id)}" class="px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold transition">
+                Hapus
               </button>
             </div>
           </td>
@@ -5313,22 +5348,17 @@ function renderFacilitiesTable() {
 
   mobileCards.innerHTML = filtered
     .map((f) => {
-      const active = f.isActive !== false;
-      const sisa = stockByFac.get(f.id) || 0;
       return `
-        <div class="rounded-xl border border-slate-200 p-4 space-y-2 bg-white">
-          <div class="flex items-center justify-between">
-            <p class="font-bold text-slate-900 text-sm">${escapeHtml(f.namaFasilitas)} <span class="font-mono-seri text-xs text-blue-700">(${escapeHtml(f.kodeDefault)})</span></p>
-            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${
-              active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'
-            }">${active ? 'Aktif' : 'Nonaktif'}</span>
+        <div class="rounded-xl border border-slate-200 p-4 space-y-2.5 bg-white">
+          <div class="flex items-center justify-between gap-2">
+            <p class="font-bold text-slate-900 text-sm">${escapeHtml(f.namaFasilitas)}</p>
+            <span class="px-2 py-0.5 rounded bg-blue-50 text-blue-800 border border-blue-200 font-mono-seri font-bold text-xs shrink-0">${escapeHtml(f.kodeDefault)}</span>
           </div>
-          <p class="text-xs text-slate-600">Tarif: <strong>${formatRupiah(f.tarifSatuan)}</strong> • Stok: <strong>${formatNumber(sisa)} Lbr</strong></p>
-          <div class="pt-2 border-t border-slate-100 flex justify-end gap-2">
+          <p class="text-xs text-slate-600">Tarif Perda: <strong class="text-slate-900">${formatRupiah(f.tarifSatuan)}</strong></p>
+          <div class="pt-2 border-t border-slate-100 flex flex-wrap justify-end gap-2">
+            <button type="button" data-use-fac-stok="${escapeHtml(f.id)}" class="px-3 py-1 rounded-lg bg-blue-50 text-blue-700 text-xs font-bold">+ Stok</button>
             <button type="button" data-edit-fac="${escapeHtml(f.id)}" class="px-3 py-1 rounded-lg bg-slate-100 text-slate-700 text-xs font-bold">Edit</button>
-            <button type="button" data-toggle-fac="${escapeHtml(f.id)}" class="px-3 py-1 rounded-lg bg-amber-50 text-amber-800 text-xs font-bold">${
-        active ? 'Nonaktifkan' : 'Aktifkan'
-      }</button>
+            <button type="button" data-delete-fac="${escapeHtml(f.id)}" class="px-3 py-1 rounded-lg bg-rose-50 text-rose-700 text-xs font-bold">Hapus</button>
           </div>
         </div>
       `;
@@ -5344,29 +5374,23 @@ function openFacilityModal(facId = null) {
   const namaInput = document.getElementById('fac-nama');
   const kodeInput = document.getElementById('fac-kode');
   const tarifInput = document.getElementById('fac-tarif');
-  const batasInput = document.getElementById('fac-batas');
-  const activeSelect = document.getElementById('fac-active');
 
-  if (!modal || !idInput || !namaInput || !kodeInput || !tarifInput || !batasInput || !activeSelect) return;
+  if (!modal || !idInput || !namaInput || !kodeInput || !tarifInput) return;
 
   if (facId) {
     const fac = state.facilities.find((f) => f.id === facId);
     if (!fac) return;
-    if (titleEl) titleEl.textContent = 'Edit Jenis Fasilitas';
+    if (titleEl) titleEl.textContent = 'Edit Fasilitas & Tarif Perda';
     idInput.value = fac.id;
     namaInput.value = fac.namaFasilitas || '';
     kodeInput.value = fac.kodeDefault || '';
     tarifInput.value = String(fac.tarifSatuan ?? 0);
-    batasInput.value = String(fac.batasMinimum ?? 200);
-    activeSelect.value = fac.isActive === false ? 'false' : 'true';
   } else {
-    if (titleEl) titleEl.textContent = 'Tambah Jenis Fasilitas Baru';
+    if (titleEl) titleEl.textContent = 'Tambah Fasilitas & Tarif Perda';
     idInput.value = '';
     namaInput.value = '';
     kodeInput.value = '';
     tarifInput.value = '';
-    batasInput.value = '200';
-    activeSelect.value = 'true';
   }
 
   modal.classList.remove('hidden');
@@ -5380,11 +5404,11 @@ async function handleFacilitySubmit(e) {
   const namaFasilitas = (document.getElementById('fac-nama')?.value || '').trim();
   const kodeDefault = (document.getElementById('fac-kode')?.value || '').trim().toUpperCase();
   const tarifSatuan = Number(document.getElementById('fac-tarif')?.value || 0);
-  const batasMinimum = Number(document.getElementById('fac-batas')?.value || 0);
-  const isActive = document.getElementById('fac-active')?.value !== 'false';
+  const existing = id ? state.facilities.find((f) => f.id === id) : null;
+  const batasMinimum = Number(existing?.batasMinimum ?? STOCK_LOW_THRESHOLD_LEMBAR);
 
   if (!namaFasilitas || !kodeDefault) {
-    showToast('warning', 'Data Belum Lengkap', 'Nama fasilitas dan kode huruf default wajib diisi.');
+    showToast('warning', 'Data Belum Lengkap', 'Nama fasilitas dan kode seri wajib diisi.');
     return;
   }
 
@@ -5396,7 +5420,7 @@ async function handleFacilitySubmit(e) {
           kodeDefault,
           tarifSatuan,
           batasMinimum,
-          isActive
+          isActive: true
         });
       } else {
         await addDoc(collection(db, COL_FACILITIES), {
@@ -5404,7 +5428,7 @@ async function handleFacilitySubmit(e) {
           kodeDefault,
           tarifSatuan,
           batasMinimum,
-          isActive,
+          isActive: true,
           createdAt: serverTimestamp()
         });
       }
@@ -5419,7 +5443,7 @@ async function handleFacilitySubmit(e) {
             kodeDefault,
             tarifSatuan,
             batasMinimum,
-            isActive
+            isActive: true
           };
         }
       } else {
@@ -5429,7 +5453,7 @@ async function handleFacilitySubmit(e) {
           kodeDefault,
           tarifSatuan,
           batasMinimum,
-          isActive,
+          isActive: true,
           createdAt: new Date().toISOString()
         });
       }
@@ -5443,44 +5467,43 @@ async function handleFacilitySubmit(e) {
     );
 
     document.getElementById('modal-facility')?.classList.add('hidden');
-    showToast('success', 'Master Fasilitas Tersimpan', `Data fasilitas "${namaFasilitas}" telah disimpan.`);
+    showToast('success', 'Fasilitas & Tarif Tersimpan', `Data fasilitas "${namaFasilitas}" telah disimpan.`);
   } catch (err) {
     console.error('Gagal menyimpan fasilitas:', err);
     showToast('error', 'Gagal Menyimpan Fasilitas', err.message || 'Terjadi kesalahan.');
   }
 }
 
-async function handleToggleFacilityStatus(facId) {
-  if (!requireAdmin('mengubah status fasilitas')) return;
+async function handleDeleteFacility(facId) {
+  if (!requireAdmin('menghapus fasilitas dan tarif')) return;
   const fac = state.facilities.find((f) => f.id === facId);
   if (!fac) return;
 
-  const nextActive = fac.isActive === false;
+  const confirmed = await showConfirmModal({
+    title: 'Hapus Fasilitas & Tarif?',
+    message: `Data fasilitas "${fac.namaFasilitas}" (${fac.kodeDefault} • ${formatRupiah(fac.tarifSatuan)}) akan dihapus.`,
+    confirmText: 'Ya, Hapus',
+    variant: 'danger'
+  });
+  if (!confirmed) return;
+
   try {
     if (state.mode === 'cloud') {
-      await updateDoc(doc(db, COL_FACILITIES, facId), { isActive: nextActive });
+      await deleteDoc(doc(db, COL_FACILITIES, facId));
     } else {
-      const facs = readLocalArray(LS_FACILITIES_KEY);
-      const idx = facs.findIndex((f) => f.id === facId);
-      if (idx !== -1) {
-        facs[idx].isActive = nextActive;
-        writeLocalArray(LS_FACILITIES_KEY, facs);
-      }
+      const facs = readLocalArray(LS_FACILITIES_KEY).filter((f) => f.id !== facId);
+      writeLocalArray(LS_FACILITIES_KEY, facs);
       refreshLocalState();
     }
 
     await logActivity(
-      'STATUS_FASILITAS',
-      `Admin mengubah status fasilitas "${fac.namaFasilitas}" menjadi ${nextActive ? 'AKTIF' : 'NONAKTIF'}.`
+      'HAPUS_FASILITAS',
+      `Admin menghapus fasilitas "${fac.namaFasilitas}" (Kode: ${fac.kodeDefault}, Tarif: ${formatRupiah(fac.tarifSatuan)}).`
     );
-    showToast(
-      'info',
-      `Fasilitas ${nextActive ? 'Diaktifkan' : 'Dinonaktifkan'}`,
-      `Status "${fac.namaFasilitas}" telah diperbarui.`
-    );
+    showToast('info', 'Fasilitas Dihapus', `Data "${fac.namaFasilitas}" telah dihapus.`);
   } catch (err) {
-    console.error('Gagal mengubah status fasilitas:', err);
-    showToast('error', 'Gagal Mengubah Status', err.message || 'Terjadi kesalahan.');
+    console.error('Gagal menghapus fasilitas:', err);
+    showToast('error', 'Gagal Menghapus Fasilitas', err.message || 'Terjadi kesalahan.');
   }
 }
 
@@ -5999,15 +6022,38 @@ function bindEvents() {
       return;
     }
 
+    const prefillLowBtn = e.target.closest('[data-prefill-stok-name]');
+    if (prefillLowBtn) {
+      prefillStockForm({
+        namaFasilitas: prefillLowBtn.getAttribute('data-prefill-stok-name') || '',
+        kodeHuruf: prefillLowBtn.getAttribute('data-prefill-stok-kode') || '',
+        tarifSatuan: Number(prefillLowBtn.getAttribute('data-prefill-stok-tarif') || 0)
+      });
+      return;
+    }
+
+    const useFacBtn = e.target.closest('[data-use-fac-stok]');
+    if (useFacBtn) {
+      const fac = state.facilities.find((f) => f.id === useFacBtn.getAttribute('data-use-fac-stok'));
+      if (fac) {
+        prefillStockForm({
+          namaFasilitas: fac.namaFasilitas,
+          kodeHuruf: fac.kodeDefault,
+          tarifSatuan: fac.tarifSatuan
+        });
+      }
+      return;
+    }
+
     const editFacBtn = e.target.closest('[data-edit-fac]');
     if (editFacBtn) {
       openFacilityModal(editFacBtn.getAttribute('data-edit-fac'));
       return;
     }
 
-    const toggleFacBtn = e.target.closest('[data-toggle-fac]');
-    if (toggleFacBtn) {
-      handleToggleFacilityStatus(toggleFacBtn.getAttribute('data-toggle-fac'));
+    const delFacBtn = e.target.closest('[data-delete-fac]');
+    if (delFacBtn) {
+      handleDeleteFacility(delFacBtn.getAttribute('data-delete-fac'));
       return;
     }
 
@@ -6302,10 +6348,6 @@ function bindEvents() {
   });
   document.getElementById('filter-fac-search')?.addEventListener('input', (e) => {
     state.filters.fac.search = e.target.value || '';
-    renderFacilitiesTable();
-  });
-  document.getElementById('filter-fac-status')?.addEventListener('change', (e) => {
-    state.filters.fac.status = e.target.value;
     renderFacilitiesTable();
   });
 
