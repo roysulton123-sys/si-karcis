@@ -11,7 +11,7 @@
       try {
         var isAndroid = Boolean(window.AndroidBridge) || /SIKarcisAndroid/i.test(navigator.userAgent || '');
         if (!isAndroid && location.protocol.indexOf('http') === 0 && location.hostname !== 'appassets.androidplatform.net') {
-          var VER = '1.2.2';
+          var VER = '1.2.3';
           var params = new URLSearchParams(location.search);
           if (params.get('v') !== VER && sessionStorage.getItem('sikarcis_dash_ver') !== VER) {
             sessionStorage.setItem('sikarcis_dash_ver', VER);
@@ -52,7 +52,7 @@
   </script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-  <link rel="stylesheet" href="./css/style.css?v=1.2.2" />
+  <link rel="stylesheet" href="./css/style.css?v=1.2.3" />
 </head>
 <body class="h-full pearl-theme bg-pearl-pattern text-slate-800 antialiased selection:bg-blue-100 selection:text-blue-900 overflow-x-hidden">
   <!-- Toast Notification Container -->
@@ -245,7 +245,7 @@
       <div class="p-4 border-t border-slate-800/90 bg-slate-950/40 shrink-0 space-y-2.5">
         <a
           id="btn-download-apk-sidebar"
-          href="./apk/SI-KARCIS-Dispora.apk?v=1.2.2"
+          href="./apk/SI-KARCIS-Dispora.apk?v=1.2.3"
           download="SI-KARCIS-Dispora.apk"
           class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold bg-emerald-600/90 hover:bg-emerald-600 text-white shadow-xs transition"
         >
@@ -1938,6 +1938,6 @@
   </div>
 
   <!-- Main Application Logic (ES6 Module) -->
-  <script type="module" src="./js/app.js?v=1.2.2"></script>
+  <script type="module" src="./js/app.js?v=1.2.3"></script>
 </body>
 </html>

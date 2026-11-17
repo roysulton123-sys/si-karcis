@@ -5330,9 +5330,6 @@ function renderFacilitiesTable() {
           <td class="py-3 px-4 text-right font-extrabold text-slate-900 tabular-nums">${formatRupiah(f.tarifSatuan)}</td>
           <td class="py-3 px-4 text-right whitespace-nowrap">
             <div class="inline-flex items-center gap-1.5">
-              <button type="button" data-use-fac-stok="${escapeHtml(f.id)}" class="px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold transition">
-                + Daftarkan Stok
-              </button>
               <button type="button" data-edit-fac="${escapeHtml(f.id)}" class="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-700 text-xs font-semibold transition">
                 Edit
               </button>
@@ -5356,7 +5353,6 @@ function renderFacilitiesTable() {
           </div>
           <p class="text-xs text-slate-600">Tarif Perda: <strong class="text-slate-900">${formatRupiah(f.tarifSatuan)}</strong></p>
           <div class="pt-2 border-t border-slate-100 flex flex-wrap justify-end gap-2">
-            <button type="button" data-use-fac-stok="${escapeHtml(f.id)}" class="px-3 py-1 rounded-lg bg-blue-50 text-blue-700 text-xs font-bold">+ Stok</button>
             <button type="button" data-edit-fac="${escapeHtml(f.id)}" class="px-3 py-1 rounded-lg bg-slate-100 text-slate-700 text-xs font-bold">Edit</button>
             <button type="button" data-delete-fac="${escapeHtml(f.id)}" class="px-3 py-1 rounded-lg bg-rose-50 text-rose-700 text-xs font-bold">Hapus</button>
           </div>
@@ -6038,19 +6034,6 @@ function bindEvents() {
       return;
     }
 
-    const useFacBtn = e.target.closest('[data-use-fac-stok]');
-    if (useFacBtn) {
-      const fac = state.facilities.find((f) => f.id === useFacBtn.getAttribute('data-use-fac-stok'));
-      if (fac) {
-        prefillStockForm({
-          namaFasilitas: fac.namaFasilitas,
-          kodeHuruf: fac.kodeDefault,
-          tarifSatuan: fac.tarifSatuan
-        });
-      }
-      return;
-    }
-
     const editFacBtn = e.target.closest('[data-edit-fac]');
     if (editFacBtn) {
       openFacilityModal(editFacBtn.getAttribute('data-edit-fac'));
@@ -6498,9 +6481,9 @@ function setupAndroidNativeAndPwaDashboard() {
   ) {
     let swRefreshing = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (!swRefreshing && !location.search.includes('v=1.2.2')) {
+      if (!swRefreshing && !location.search.includes('v=1.2.3')) {
         swRefreshing = true;
-        window.location.replace('./dashboard.html?v=1.2.2');
+        window.location.replace('./dashboard.html?v=1.2.3');
       }
     });
     navigator.serviceWorker

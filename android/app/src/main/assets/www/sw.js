@@ -1,11 +1,11 @@
-const APP_VERSION = '1.2.2';
-const CACHE_NAME = 'sikarcis-shell-v7';
+const APP_VERSION = '1.2.3';
+const CACHE_NAME = 'sikarcis-shell-v8';
 const PRECACHE_URLS = [
   './',
   './index.html',
   './dashboard.html',
-  './css/style.css?v=1.2.2',
-  './js/app.js?v=1.2.2',
+  './css/style.css?v=1.2.3',
+  './js/app.js?v=1.2.3',
   './js/firebase-config.js',
   './assets/app-icon.png',
   './assets/app-icon-192.png',
