@@ -6486,7 +6486,17 @@ function setupAndroidNativeAndPwaDashboard() {
     location.protocol.startsWith('http') &&
     location.hostname !== 'appassets.androidplatform.net'
   ) {
-    navigator.serviceWorker.register('./sw.js').catch(() => {});
+    let swRefreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!swRefreshing) {
+        swRefreshing = true;
+        window.location.reload();
+      }
+    });
+    navigator.serviceWorker
+      .register('./sw.js', { updateViaCache: 'none' })
+      .then((reg) => reg.update().catch(() => {}))
+      .catch(() => {});
   }
 }
 

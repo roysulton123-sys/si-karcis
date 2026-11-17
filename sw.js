@@ -1,10 +1,10 @@
-const CACHE_NAME = 'sikarcis-shell-v5';
+const CACHE_NAME = 'sikarcis-shell-v6';
 const PRECACHE_URLS = [
   './',
   './index.html',
   './dashboard.html',
-  './css/style.css',
-  './js/app.js',
+  './css/style.css?v=1.2.1',
+  './js/app.js?v=1.2.1',
   './js/firebase-config.js',
   './assets/app-icon.png',
   './assets/app-icon-192.png',
@@ -36,21 +36,16 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET') return;
 
   const url = new URL(req.url);
-  // Jangan cache koneksi real-time Firebase / Google APIs atau unduhan file APK
-  if (
-    url.hostname.includes('googleapis.com') ||
-    url.hostname.includes('firebaseio.com') ||
-    url.hostname.includes('firebaseapp.com') ||
-    url.pathname.endsWith('.apk')
-  ) {
+  // Hanya tangani aset origin aplikasi (kecuali APK), lewati API Firebase / CDN eksternal
+  if (url.origin !== self.location.origin || url.pathname.endsWith('.apk')) {
     return;
   }
 
-  // Gunakan Network-First agar kode & tampilan selalu mutakhir dan sinkron dengan Cloud
+  // Bypass HTTP disk cache agar pembaruan web desktop selalu langsung tampil
   event.respondWith(
-    fetch(req)
+    fetch(url.href, { cache: 'no-store' })
       .then((networkRes) => {
-        if (networkRes && networkRes.status === 200 && url.origin === self.location.origin) {
+        if (networkRes && networkRes.status === 200) {
           const copy = networkRes.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(req, copy)).catch(() => {});
         }
