@@ -5490,12 +5490,18 @@ async function handleDeleteFacility(facId) {
   try {
     if (state.mode === 'cloud') {
       await deleteDoc(doc(db, COL_FACILITIES, facId));
+      state.facilities = state.facilities.filter((f) => f.id !== facId);
+      state.sync.fingerprints.facilities = buildCollectionFingerprint(state.facilities);
+      writeLocalArray(LS_FACILITIES_KEY, state.facilities);
+      populateFacilitySelects();
+      renderFacilitiesTable();
     } else {
       const facs = readLocalArray(LS_FACILITIES_KEY).filter((f) => f.id !== facId);
       writeLocalArray(LS_FACILITIES_KEY, facs);
       refreshLocalState();
     }
 
+    notifyCrossTabSync('facilities');
     await logActivity(
       'HAPUS_FASILITAS',
       `Admin menghapus fasilitas "${fac.namaFasilitas}" (Kode: ${fac.kodeDefault}, Tarif: ${formatRupiah(fac.tarifSatuan)}).`
@@ -6444,6 +6450,9 @@ function setupAndroidNativeAndPwaDashboard() {
   if (isAndroidNative && dlSidebarBtn) {
     dlSidebarBtn.classList.add('hidden');
   }
+  if (isAndroidNative && 'serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations().then((regs) => regs.forEach((r) => r.unregister())).catch(() => {});
+  }
 
   // Handler Tombol Back Hardware Android
   window.sikarcisHandleBackPress = function () {
@@ -6482,15 +6491,16 @@ function setupAndroidNativeAndPwaDashboard() {
   };
 
   if (
+    !isAndroidNative &&
     'serviceWorker' in navigator &&
     location.protocol.startsWith('http') &&
     location.hostname !== 'appassets.androidplatform.net'
   ) {
     let swRefreshing = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (!swRefreshing) {
+      if (!swRefreshing && !location.search.includes('v=1.2.2')) {
         swRefreshing = true;
-        window.location.reload();
+        window.location.replace('./dashboard.html?v=1.2.2');
       }
     });
     navigator.serviceWorker

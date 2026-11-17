@@ -31,6 +31,7 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.FileProvider;
+import androidx.webkit.WebResourceErrorCompat;
 import androidx.webkit.WebViewAssetLoader;
 import androidx.webkit.WebViewClientCompat;
 
@@ -39,11 +40,13 @@ import java.io.FileOutputStream;
 
 public class MainActivity extends AppCompatActivity {
 
-    private static final String START_URL = "https://appassets.androidplatform.net/assets/www/index.html";
+    private static final String LIVE_WEB_URL = "https://roysulton2134-beep.github.io/si-karcis/?v=1.2.2";
+    private static final String FALLBACK_LOCAL_URL = "https://appassets.androidplatform.net/assets/www/index.html";
     private WebView webView;
     private ConnectivityManager connectivityManager;
     private ConnectivityManager.NetworkCallback networkCallback;
     private AlertDialog exitDialog;
+    private boolean usingLocalFallback = false;
 
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     @Override
@@ -80,7 +83,7 @@ public class MainActivity extends AppCompatActivity {
         settings.setSupportZoom(false);
         settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
-        settings.setUserAgentString(settings.getUserAgentString() + " SIKarcisAndroid/1.2.1");
+        settings.setUserAgentString(settings.getUserAgentString() + " SIKarcisAndroid/1.2.2");
 
         CookieManager cookieManager = CookieManager.getInstance();
         cookieManager.setAcceptCookie(true);
@@ -91,14 +94,19 @@ public class MainActivity extends AppCompatActivity {
         webView.setWebViewClient(new WebViewClientCompat() {
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-                return assetLoader.shouldInterceptRequest(request.getUrl());
+                Uri url = request != null ? request.getUrl() : null;
+                if (url != null && "appassets.androidplatform.net".equalsIgnoreCase(url.getHost())) {
+                    return assetLoader.shouldInterceptRequest(url);
+                }
+                return super.shouldInterceptRequest(view, request);
             }
 
             @Override
             public boolean shouldOverrideUrlLoading(@NonNull WebView view, @NonNull WebResourceRequest request) {
                 Uri url = request.getUrl();
                 String host = url.getHost() != null ? url.getHost() : "";
-                if ("appassets.androidplatform.net".equalsIgnoreCase(host)) {
+                if ("appassets.androidplatform.net".equalsIgnoreCase(host)
+                        || "roysulton2134-beep.github.io".equalsIgnoreCase(host)) {
                     return false;
                 }
                 try {
@@ -107,6 +115,23 @@ public class MainActivity extends AppCompatActivity {
                 } catch (Exception ignored) {
                 }
                 return true;
+            }
+
+            @Override
+            public void onReceivedError(
+                    @NonNull WebView view,
+                    @NonNull WebResourceRequest request,
+                    @NonNull WebResourceErrorCompat error
+            ) {
+                super.onReceivedError(view, request, error);
+                if (request.isForMainFrame() && !usingLocalFallback) {
+                    Uri url = request.getUrl();
+                    String host = url != null && url.getHost() != null ? url.getHost() : "";
+                    if ("roysulton2134-beep.github.io".equalsIgnoreCase(host)) {
+                        usingLocalFallback = true;
+                        view.loadUrl(FALLBACK_LOCAL_URL);
+                    }
+                }
             }
         });
 
@@ -136,9 +161,23 @@ public class MainActivity extends AppCompatActivity {
         });
 
         if (savedInstanceState == null) {
-            webView.loadUrl(START_URL);
+            webView.clearCache(true);
+            webView.loadUrl(isInternetAvailable() ? LIVE_WEB_URL : FALLBACK_LOCAL_URL);
         } else {
             webView.restoreState(savedInstanceState);
+        }
+    }
+
+    private boolean isInternetAvailable() {
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm == null) return false;
+            Network activeNetwork = cm.getActiveNetwork();
+            if (activeNetwork == null) return false;
+            NetworkCapabilities caps = cm.getNetworkCapabilities(activeNetwork);
+            return caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
+        } catch (Exception e) {
+            return false;
         }
     }
 

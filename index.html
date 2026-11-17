@@ -34,7 +34,7 @@
       }
     };
   </script>
-  <link rel="stylesheet" href="./css/style.css?v=1.2.1" />
+  <link rel="stylesheet" href="./css/style.css?v=1.2.2" />
   <style>
     /* Tekstur halus latar belakang: gradasi Navy ke Slate + pola perforasi karcis */
     .ticket-bg-pattern {
@@ -314,7 +314,7 @@
               </div>
               <a
                 id="btn-download-android-apk"
-                href="./apk/SI-KARCIS-Dispora.apk?v=1.2.1"
+                href="./apk/SI-KARCIS-Dispora.apk?v=1.2.2"
                 download="SI-KARCIS-Dispora.apk"
                 class="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition shrink-0"
               >
@@ -699,6 +699,9 @@
       if (isAndroidNative) {
         if (dlWrapper) dlWrapper.classList.add('hidden');
         if (dlBox) dlBox.classList.add('hidden');
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then((regs) => regs.forEach((r) => r.unregister())).catch(() => {});
+        }
       }
 
       window.sikarcisHandleBackPress = function () {
@@ -710,15 +713,16 @@
       };
 
       if (
+        !isAndroidNative &&
         'serviceWorker' in navigator &&
         location.protocol.startsWith('http') &&
         location.hostname !== 'appassets.androidplatform.net'
       ) {
         let swRefreshing = false;
         navigator.serviceWorker.addEventListener('controllerchange', () => {
-          if (!swRefreshing) {
+          if (!swRefreshing && !location.search.includes('v=1.2.2')) {
             swRefreshing = true;
-            window.location.reload();
+            window.location.replace('./index.html?v=1.2.2');
           }
         });
         navigator.serviceWorker
@@ -755,7 +759,7 @@
       }
       localStorage.setItem(LOCAL_KEYS.SESSION, JSON.stringify(found));
       showToast(`Selamat datang, ${found.nama}!`, 'success');
-      window.location.replace('./dashboard.html');
+      window.location.replace('./dashboard.html?v=1.2.2');
       return true;
     }
 
@@ -838,7 +842,7 @@
           );
           if (freshUser && (freshUser.role === 'admin' || freshUser.status === 'approved')) {
             localStorage.setItem(LOCAL_KEYS.SESSION, JSON.stringify(freshUser));
-            window.location.replace('./dashboard.html');
+            window.location.replace('./dashboard.html?v=1.2.2');
             return;
           } else {
             localStorage.removeItem(LOCAL_KEYS.SESSION);

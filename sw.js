@@ -1,10 +1,11 @@
-const CACHE_NAME = 'sikarcis-shell-v6';
+const APP_VERSION = '1.2.2';
+const CACHE_NAME = 'sikarcis-shell-v7';
 const PRECACHE_URLS = [
   './',
   './index.html',
   './dashboard.html',
-  './css/style.css?v=1.2.1',
-  './js/app.js?v=1.2.1',
+  './css/style.css?v=1.2.2',
+  './js/app.js?v=1.2.2',
   './js/firebase-config.js',
   './assets/app-icon.png',
   './assets/app-icon-192.png',
@@ -28,6 +29,23 @@ self.addEventListener('activate', (event) => {
         Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
       )
       .then(() => self.clients.claim())
+      .then(async () => {
+        const clientList = await self.clients.matchAll({
+          type: 'window',
+          includeUncontrolled: true
+        });
+        for (const client of clientList) {
+          try {
+            const u = new URL(client.url);
+            if (u.searchParams.get('v') !== APP_VERSION && 'navigate' in client) {
+              u.searchParams.set('v', APP_VERSION);
+              await client.navigate(u.href);
+            }
+          } catch {
+            // Abaikan bila client tidak mendukung navigate
+          }
+        }
+      })
   );
 });
 
