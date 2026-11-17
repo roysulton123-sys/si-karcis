@@ -42,6 +42,7 @@ import {
   onSnapshot,
   query,
   where,
+  limit,
   writeBatch,
   runTransaction,
   serverTimestamp
@@ -69,6 +70,7 @@ const LS_FACILITIES_KEY = 'sikarcis_local_facilities_v1';
 const LS_STOCK_KEY = 'sikarcis_local_stock_v1';
 const LS_DISTRIBUSI_KEY = 'sikarcis_local_distribusi_v1';
 const LS_REQUESTS_KEY = 'sikarcis_local_requests_v1';
+const LS_FACILITIES_SEEDED_KEY = 'sikarcis_facilities_seeded_v1';
 
 const STOCK_LOW_THRESHOLD_LEMBAR = 200; // Peringatan stok menipis: di bawah 2 bendel (< 200 lembar)
 
@@ -149,12 +151,16 @@ const state = {
     timer: null,
     retryTimer: null,
     inFlight: false,
+    mutationSeq: 0,
     fingerprints: {},
     channel: null,
     hooksBound: false
   },
 
-  seedingInProgress: false
+  seedingInProgress: false,
+  cloudSeedChecked: false,
+  facilitiesSeededKnown: false,
+  cloudMetaMarked: false
 };
 
 /* ==========================================================================
@@ -487,120 +493,208 @@ function requireAdmin(actionLabel = 'tindakan ini') {
    6. AUTO-SEEDING DATA AWAL & SINKRONISASI REAL-TIME / LOCAL
    ========================================================================== */
 
+function hasFacilitiesInitializedLocal() {
+  try {
+    return typeof localStorage !== 'undefined' && localStorage.getItem(LS_FACILITIES_SEEDED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function markFacilitiesInitializedLocal() {
+  state.facilitiesSeededKnown = true;
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(LS_FACILITIES_SEEDED_KEY, '1');
+    }
+  } catch {
+    // Abaikan jika localStorage penuh atau dibatasi
+  }
+}
+
+async function markFacilitiesInitializedCloud() {
+  markFacilitiesInitializedLocal();
+  if (state.mode !== 'cloud' || !isFirebaseConfigured()) return;
+  try {
+    await setDoc(
+      doc(db, COL_SETTINGS, 'facilities_meta'),
+      {
+        initialSeedDone: true,
+        updatedAt: new Date().toISOString()
+      },
+      { merge: true }
+    );
+    state.cloudMetaMarked = true;
+  } catch (err) {
+    console.warn('Gagal menyimpan penanda inisialisasi fasilitas di Cloud:', err?.message || err);
+  }
+}
+
 async function ensureFacilitiesSeededCloud() {
-  if (state.seedingInProgress) return;
+  if (
+    state.seedingInProgress ||
+    state.cloudSeedChecked ||
+    state.facilitiesSeededKnown ||
+    hasFacilitiesInitializedLocal()
+  ) {
+    return false;
+  }
+  if (state.currentUser?.role !== 'admin') {
+    return false;
+  }
+
   state.seedingInProgress = true;
   try {
-    const snap = await getDocs(collection(db, COL_FACILITIES));
-    if (snap.empty) {
-      const batch = writeBatch(db);
-      const seededFacs = [];
-      INITIAL_FACILITIES_SEED.forEach((item, idx) => {
-        const facId = `fac_seed_${idx + 1}`;
-        const newRef = doc(db, COL_FACILITIES, facId);
-        const facData = {
-          namaFasilitas: item.namaFasilitas,
-          tarifSatuan: Number(item.tarifSatuan),
-          kodeDefault: String(item.kodeDefault).toUpperCase(),
-          batasMinimum: Number(item.batasMinimum),
-          isActive: Boolean(item.isActive),
+    const [snap, metaSnap, logsSnap, stockSnap, distSnap, reqSnap] = await Promise.all([
+      getDocs(collection(db, COL_FACILITIES)),
+      getDoc(doc(db, COL_SETTINGS, 'facilities_meta')).catch(() => null),
+      getDocs(query(collection(db, COL_LOGS), limit(1))).catch(() => null),
+      getDocs(query(collection(db, COL_STOCK), limit(1))).catch(() => null),
+      getDocs(query(collection(db, COL_DISTRIBUSI), limit(1))).catch(() => null),
+      getDocs(query(collection(db, COL_REQUESTS), limit(1))).catch(() => null)
+    ]);
+
+    // Jika salah satu pengecekan gagal karena jaringan/izin, batalkan seeding agar tidak menimpa data yang ada
+    if (!metaSnap || !logsSnap || !stockSnap || !distSnap || !reqSnap) {
+      return false;
+    }
+
+    state.cloudSeedChecked = true;
+
+    const alreadySeededInMeta = Boolean(metaSnap.exists() && metaSnap.data()?.initialSeedDone);
+    const hasHistoricalActivity =
+      !logsSnap.empty || !stockSnap.empty || !distSnap.empty || !reqSnap.empty;
+
+    // Auto-seeding hanya berjalan sekali pada database benar-benar baru;
+    // jika admin menghapus semua fasilitas, kondisi ini mencegah data awal muncul kembali.
+    if (!snap.empty || alreadySeededInMeta || hasHistoricalActivity) {
+      if (alreadySeededInMeta) state.cloudMetaMarked = true;
+      markFacilitiesInitializedLocal();
+      if (!alreadySeededInMeta) {
+        await markFacilitiesInitializedCloud();
+      }
+      return false;
+    }
+
+    const batch = writeBatch(db);
+    const seededFacs = [];
+    INITIAL_FACILITIES_SEED.forEach((item, idx) => {
+      const facId = `fac_seed_${idx + 1}`;
+      const newRef = doc(db, COL_FACILITIES, facId);
+      const facData = {
+        namaFasilitas: item.namaFasilitas,
+        tarifSatuan: Number(item.tarifSatuan),
+        kodeDefault: String(item.kodeDefault).toUpperCase(),
+        batasMinimum: Number(item.batasMinimum),
+        isActive: Boolean(item.isActive),
+        createdAt: serverTimestamp()
+      };
+      batch.set(newRef, facData, { merge: true });
+      seededFacs.push({ id: facId, ...facData });
+    });
+
+    if (stockSnap.empty && seededFacs.length >= 4) {
+      const sampleStocks = [
+        {
+          id: 'stk_seed_1',
+          tahun: '2026',
+          facilityId: seededFacs[0].id,
+          jenisFasilitas: seededFacs[0].namaFasilitas,
+          tarifSatuan: seededFacs[0].tarifSatuan,
+          kodeHuruf: seededFacs[0].kodeDefault,
+          angkaMulai: 1,
+          angkaSampai: 1000,
+          totalAwal: 1000,
+          sisaStok: 900,
+          angkaSisaMulai: 101,
+          isReturBatch: false,
           createdAt: serverTimestamp()
-        };
-        batch.set(newRef, facData, { merge: true });
-        seededFacs.push({ id: facId, ...facData });
+        },
+        {
+          id: 'stk_seed_2',
+          tahun: '2026',
+          facilityId: seededFacs[2].id,
+          jenisFasilitas: seededFacs[2].namaFasilitas,
+          tarifSatuan: seededFacs[2].tarifSatuan,
+          kodeHuruf: seededFacs[2].kodeDefault,
+          angkaMulai: 1,
+          angkaSampai: 500,
+          totalAwal: 500,
+          sisaStok: 500,
+          angkaSisaMulai: 1,
+          isReturBatch: false,
+          createdAt: serverTimestamp()
+        },
+        {
+          id: 'stk_seed_3',
+          tahun: '2026',
+          facilityId: seededFacs[3].id,
+          jenisFasilitas: seededFacs[3].namaFasilitas,
+          tarifSatuan: seededFacs[3].tarifSatuan,
+          kodeHuruf: seededFacs[3].kodeDefault,
+          angkaMulai: 1,
+          angkaSampai: 500,
+          totalAwal: 500,
+          sisaStok: 500,
+          angkaSisaMulai: 1,
+          isReturBatch: false,
+          createdAt: serverTimestamp()
+        }
+      ];
+      sampleStocks.forEach((stk) => {
+        const stkRef = doc(db, COL_STOCK, stk.id);
+        const { id, ...stkPayload } = stk;
+        batch.set(stkRef, stkPayload, { merge: true });
       });
 
-      const stockSnap = await getDocs(collection(db, COL_STOCK));
-      if (stockSnap.empty && seededFacs.length >= 4) {
-        const sampleStocks = [
-          {
-            id: 'stk_seed_1',
-            tahun: '2026',
-            facilityId: seededFacs[0].id,
-            jenisFasilitas: seededFacs[0].namaFasilitas,
-            tarifSatuan: seededFacs[0].tarifSatuan,
-            kodeHuruf: seededFacs[0].kodeDefault,
-            angkaMulai: 1,
-            angkaSampai: 1000,
-            totalAwal: 1000,
-            sisaStok: 900,
-            angkaSisaMulai: 101,
-            isReturBatch: false,
-            createdAt: serverTimestamp()
-          },
-          {
-            id: 'stk_seed_2',
-            tahun: '2026',
-            facilityId: seededFacs[2].id,
-            jenisFasilitas: seededFacs[2].namaFasilitas,
-            tarifSatuan: seededFacs[2].tarifSatuan,
-            kodeHuruf: seededFacs[2].kodeDefault,
-            angkaMulai: 1,
-            angkaSampai: 500,
-            totalAwal: 500,
-            sisaStok: 500,
-            angkaSisaMulai: 1,
-            isReturBatch: false,
-            createdAt: serverTimestamp()
-          },
-          {
-            id: 'stk_seed_3',
-            tahun: '2026',
-            facilityId: seededFacs[3].id,
-            jenisFasilitas: seededFacs[3].namaFasilitas,
-            tarifSatuan: seededFacs[3].tarifSatuan,
-            kodeHuruf: seededFacs[3].kodeDefault,
-            angkaMulai: 1,
-            angkaSampai: 500,
-            totalAwal: 500,
-            sisaStok: 500,
-            angkaSisaMulai: 1,
-            isReturBatch: false,
-            createdAt: serverTimestamp()
-          }
-        ];
-        sampleStocks.forEach((stk) => {
-          const stkRef = doc(db, COL_STOCK, stk.id);
-          const { id, ...stkPayload } = stk;
-          batch.set(stkRef, stkPayload, { merge: true });
-        });
-
-        const distRef = doc(db, COL_DISTRIBUSI, 'dist_seed_1');
-        batch.set(
-          distRef,
-          {
-            tahun: '2026',
-            stockId: 'stk_seed_1',
-            facilityId: seededFacs[0].id,
-            tanggal: getTodayISO(),
-            jenisFasilitas: seededFacs[0].namaFasilitas,
-            tarifSatuan: seededFacs[0].tarifSatuan,
-            penerima: 'Budi Santoso (Loket PKL Area Timur)',
-            userUid: '',
-            userEmail: '',
-            jumlahKeluar: 100,
-            jumlahTerjual: 85,
-            jumlahRetur: 15,
-            totalNominal: 85 * seededFacs[0].tarifSatuan,
-            seriKeluar: 'PKL 00001 - PKL 00100',
-            seriTerjual: 'PKL 00001 - PKL 00085',
-            seriRetur: 'PKL 00086 - PKL 00100',
-            statusSetoran: 'Lunas Setor',
-            catatan: 'Shift Pagi - Sisa 15 lembar telah diretur',
-            createdAt: serverTimestamp()
-          },
-          { merge: true }
-        );
-      }
-
-      await batch.commit();
-      await logActivity(
-        'AUTO_SEED_FASILITAS',
-        'Sistem mengisi otomatis 7 jenis fasilitas awal beserta tarif retribusinya.'
+      const distRef = doc(db, COL_DISTRIBUSI, 'dist_seed_1');
+      batch.set(
+        distRef,
+        {
+          tahun: '2026',
+          stockId: 'stk_seed_1',
+          facilityId: seededFacs[0].id,
+          tanggal: getTodayISO(),
+          jenisFasilitas: seededFacs[0].namaFasilitas,
+          tarifSatuan: seededFacs[0].tarifSatuan,
+          penerima: 'Budi Santoso (Loket PKL Area Timur)',
+          userUid: '',
+          userEmail: '',
+          jumlahKeluar: 100,
+          jumlahTerjual: 85,
+          jumlahRetur: 15,
+          totalNominal: 85 * seededFacs[0].tarifSatuan,
+          seriKeluar: 'PKL 00001 - PKL 00100',
+          seriTerjual: 'PKL 00001 - PKL 00085',
+          seriRetur: 'PKL 00086 - PKL 00100',
+          statusSetoran: 'Lunas Setor',
+          catatan: 'Shift Pagi - Sisa 15 lembar telah diretur',
+          createdAt: serverTimestamp()
+        },
+        { merge: true }
       );
     }
+
+    batch.set(
+      doc(db, COL_SETTINGS, 'facilities_meta'),
+      {
+        initialSeedDone: true,
+        updatedAt: new Date().toISOString()
+      },
+      { merge: true }
+    );
+
+    await batch.commit();
+    state.cloudMetaMarked = true;
+    markFacilitiesInitializedLocal();
+    await logActivity(
+      'AUTO_SEED_FASILITAS',
+      'Sistem mengisi otomatis 7 jenis fasilitas awal beserta tarif retribusinya.'
+    );
+    return true;
   } catch (err) {
     console.error('Gagal melakukan auto-seeding fasilitas:', err);
+    return false;
   } finally {
     state.seedingInProgress = false;
   }
@@ -611,11 +705,17 @@ async function migrateLocalDataToCloudOnce() {
   if (localStorage.getItem('sikarcis_cloud_migrated_v2') === '1') return;
 
   try {
-    const [cloudFacsSnap, cloudUsersSnap] = await Promise.all([
+    const [cloudFacsSnap, cloudUsersSnap, cloudMetaSnap] = await Promise.all([
       getDocs(collection(db, COL_FACILITIES)),
-      getDocs(collection(db, COL_USERS))
+      getDocs(collection(db, COL_USERS)),
+      getDoc(doc(db, COL_SETTINGS, 'facilities_meta')).catch(() => null)
     ]);
-    const cloudHasData = !cloudFacsSnap.empty || !cloudUsersSnap.empty;
+    const cloudHasMeta = Boolean(cloudMetaSnap && cloudMetaSnap.exists() && cloudMetaSnap.data()?.initialSeedDone);
+    const cloudHasData = !cloudFacsSnap.empty || !cloudUsersSnap.empty || cloudHasMeta;
+
+    if (cloudHasMeta || !cloudFacsSnap.empty) {
+      markFacilitiesInitializedLocal();
+    }
 
     const batch = writeBatch(db);
     let writeCount = 0;
@@ -633,46 +733,49 @@ async function migrateLocalDataToCloudOnce() {
       }
     }
 
-    // Lewati data dummy seed bila Cloud sudah memiliki data aktif
-    const isSeedId = (id) =>
-      String(id || '').startsWith('fac_seed_') ||
-      String(id || '').startsWith('stk_seed_') ||
-      String(id || '').startsWith('dist_seed_');
+    // Jika Cloud sudah pernah aktif/memiliki data, jangan unggah ulang cache fasilitas/stok/distribusi lokal
+    // karena dapat memunculkan kembali item yang sudah dihapus di Cloud.
+    if (!cloudHasData) {
+      const localFacs = readLocalArray(LS_FACILITIES_KEY);
+      for (const f of localFacs) {
+        if (!f.id) continue;
+        const { id, ...payload } = f;
+        batch.set(doc(db, COL_FACILITIES, id), payload, { merge: true });
+        writeCount++;
+      }
 
-    // 2. Unggah fasilitas kustom lokal jika ada
-    const localFacs = readLocalArray(LS_FACILITIES_KEY);
-    for (const f of localFacs) {
-      if (!f.id || (cloudHasData && isSeedId(f.id))) continue;
-      const { id, ...payload } = f;
-      batch.set(doc(db, COL_FACILITIES, id), payload, { merge: true });
-      writeCount++;
-    }
+      const localStocks = readLocalArray(LS_STOCK_KEY);
+      for (const s of localStocks) {
+        if (!s.id) continue;
+        const { id, ...payload } = s;
+        batch.set(doc(db, COL_STOCK, id), payload, { merge: true });
+        writeCount++;
+      }
 
-    // 3. Unggah stok lokal jika ada
-    const localStocks = readLocalArray(LS_STOCK_KEY);
-    for (const s of localStocks) {
-      if (!s.id || (cloudHasData && isSeedId(s.id))) continue;
-      const { id, ...payload } = s;
-      batch.set(doc(db, COL_STOCK, id), payload, { merge: true });
-      writeCount++;
-    }
+      const localDists = readLocalArray(LS_DISTRIBUSI_KEY);
+      for (const d of localDists) {
+        if (!d.id) continue;
+        const { id, ...payload } = d;
+        batch.set(doc(db, COL_DISTRIBUSI, id), payload, { merge: true });
+        writeCount++;
+      }
 
-    // 4. Unggah distribusi lokal jika ada
-    const localDists = readLocalArray(LS_DISTRIBUSI_KEY);
-    for (const d of localDists) {
-      if (!d.id || (cloudHasData && isSeedId(d.id))) continue;
-      const { id, ...payload } = d;
-      batch.set(doc(db, COL_DISTRIBUSI, id), payload, { merge: true });
-      writeCount++;
-    }
+      const localReqs = readLocalArray(LS_REQUESTS_KEY);
+      for (const r of localReqs) {
+        if (!r.id) continue;
+        const { id, ...payload } = r;
+        batch.set(doc(db, COL_REQUESTS, id), payload, { merge: true });
+        writeCount++;
+      }
 
-    // 5. Unggah request lokal jika ada
-    const localReqs = readLocalArray(LS_REQUESTS_KEY);
-    for (const r of localReqs) {
-      if (!r.id) continue;
-      const { id, ...payload } = r;
-      batch.set(doc(db, COL_REQUESTS, id), payload, { merge: true });
-      writeCount++;
+      if (localFacs.length > 0 || hasFacilitiesInitializedLocal()) {
+        batch.set(
+          doc(db, COL_SETTINGS, 'facilities_meta'),
+          { initialSeedDone: true, updatedAt: new Date().toISOString() },
+          { merge: true }
+        );
+        writeCount++;
+      }
     }
 
     if (writeCount > 0) {
@@ -706,9 +809,20 @@ function ensureLocalDataSeeded() {
     writeLocalArray(LS_USERS_KEY, users);
   }
 
-  // 2. Auto-Seed 7 Master Jenis Fasilitas jika kosong
+  // 2. Auto-Seed 7 Master Jenis Fasilitas HANYA sekali jika penyimpanan lokal benar-benar baru
   let facilities = readLocalArray(LS_FACILITIES_KEY);
-  if (facilities.length === 0) {
+  const existingStocks = readLocalArray(LS_STOCK_KEY);
+  const existingDist = readLocalArray(LS_DISTRIBUSI_KEY);
+  const existingLogs = readLocalArray(LS_LOGS_KEY);
+  const alreadyInitialized =
+    hasFacilitiesInitializedLocal() ||
+    existingStocks.length > 0 ||
+    existingDist.length > 0 ||
+    existingLogs.length > 0;
+
+  if (facilities.length > 0) {
+    markFacilitiesInitializedLocal();
+  } else if (!alreadyInitialized) {
     const nowIso = new Date().toISOString();
     facilities = INITIAL_FACILITIES_SEED.map((item, idx) => ({
       id: `fac_seed_${idx + 1}`,
@@ -720,9 +834,9 @@ function ensureLocalDataSeeded() {
       createdAt: nowIso
     }));
     writeLocalArray(LS_FACILITIES_KEY, facilities);
+    markFacilitiesInitializedLocal();
 
     // Seed contoh Batch Stok awal di TA 2026 agar fitur pengeluaran & cetak langsung siap diuji
-    const existingStocks = readLocalArray(LS_STOCK_KEY);
     if (existingStocks.length === 0 && facilities.length >= 3) {
       const sampleStocks = [
         {
@@ -802,6 +916,8 @@ function ensureLocalDataSeeded() {
         ]);
       }
     }
+  } else {
+    markFacilitiesInitializedLocal();
   }
 }
 
@@ -974,6 +1090,7 @@ async function syncCloudDataSilently(force = false) {
 
   state.sync.inFlight = true;
   const tahun = String(state.tahun);
+  const seqAtStart = state.sync.mutationSeq;
 
   try {
     const [facSnap, stockSnap, distSnap, logsSnap, usersSnap, reqSnap] = await Promise.all([
@@ -985,8 +1102,8 @@ async function syncCloudDataSilently(force = false) {
       getDocs(query(collection(db, COL_REQUESTS), where('tahun', '==', tahun)))
     ]);
 
-    // Pastikan state.tahun belum berubah di tengah fetch
-    if (String(state.tahun) !== tahun) return;
+    // Pastikan state.tahun belum berubah dan tidak ada mutasi baru yang berjalan saat fetch berlangsung
+    if (String(state.tahun) !== tahun || state.sync.mutationSeq !== seqAtStart) return;
 
     const facItems = facSnap.docs
       .map((d) => ({ id: d.id, ...d.data() }))
@@ -1180,10 +1297,17 @@ function attachRealtimeListeners() {
   state.unsubscribers.facilities = onSnapshot(
     collection(db, COL_FACILITIES),
     async (snapshot) => {
-      if (snapshot.empty && !state.seedingInProgress) {
-        await ensureFacilitiesSeededCloud();
-        return;
+      if (!snapshot.empty) {
+        state.cloudSeedChecked = true;
+        markFacilitiesInitializedLocal();
+        if (!state.cloudMetaMarked && state.currentUser?.role === 'admin') {
+          markFacilitiesInitializedCloud();
+        }
+      } else if (!state.cloudSeedChecked && !state.seedingInProgress) {
+        const didSeed = await ensureFacilitiesSeededCloud();
+        if (didSeed) return;
       }
+
       const items = [];
       snapshot.forEach((docSnap) => {
         items.push({ id: docSnap.id, ...docSnap.data() });
@@ -4987,7 +5111,11 @@ async function handleStokSubmit(e) {
   try {
     if (!matchedFac) {
       createdNewFacility = true;
+      state.cloudSeedChecked = true;
+      markFacilitiesInitializedLocal();
+      state.sync.mutationSeq++;
       if (state.mode === 'cloud') {
+        await markFacilitiesInitializedCloud();
         const facRef = await addDoc(collection(db, COL_FACILITIES), {
           namaFasilitas: rawNama,
           tarifSatuan,
@@ -5310,12 +5438,18 @@ function renderFacilitiesTable() {
   });
 
   if (filtered.length === 0) {
+    const emptyMsg =
+      state.facilities.length === 0 && !q
+        ? 'Belum ada data fasilitas & tarif. Klik + Tambah Fasilitas untuk menambahkan.'
+        : 'Tidak ada jenis fasilitas yang sesuai filter.';
+    const emptyMobileMsg =
+      state.facilities.length === 0 && !q ? 'Belum ada data fasilitas & tarif.' : 'Tidak ada fasilitas.';
     tbody.innerHTML = `
       <tr>
-        <td colspan="4" class="py-10 text-center text-slate-400">Tidak ada jenis fasilitas yang sesuai filter.</td>
+        <td colspan="4" class="py-10 text-center text-slate-400">${emptyMsg}</td>
       </tr>
     `;
-    mobileCards.innerHTML = `<div class="py-8 text-center text-slate-400 text-xs">Tidak ada fasilitas.</div>`;
+    mobileCards.innerHTML = `<div class="py-8 text-center text-slate-400 text-xs">${emptyMobileMsg}</div>`;
     return;
   }
 
@@ -5409,7 +5543,12 @@ async function handleFacilitySubmit(e) {
   }
 
   try {
+    state.cloudSeedChecked = true;
+    markFacilitiesInitializedLocal();
+    state.sync.mutationSeq++;
+
     if (state.mode === 'cloud') {
+      await markFacilitiesInitializedCloud();
       if (id) {
         await updateDoc(doc(db, COL_FACILITIES, id), {
           namaFasilitas,
@@ -5428,6 +5567,7 @@ async function handleFacilitySubmit(e) {
           createdAt: serverTimestamp()
         });
       }
+      state.sync.mutationSeq++;
     } else {
       const facs = readLocalArray(LS_FACILITIES_KEY);
       if (id) {
@@ -5484,8 +5624,14 @@ async function handleDeleteFacility(facId) {
   if (!confirmed) return;
 
   try {
+    state.cloudSeedChecked = true;
+    markFacilitiesInitializedLocal();
+    state.sync.mutationSeq++;
+
     if (state.mode === 'cloud') {
+      await markFacilitiesInitializedCloud();
       await deleteDoc(doc(db, COL_FACILITIES, facId));
+      state.sync.mutationSeq++;
       state.facilities = state.facilities.filter((f) => f.id !== facId);
       state.sync.fingerprints.facilities = buildCollectionFingerprint(state.facilities);
       writeLocalArray(LS_FACILITIES_KEY, state.facilities);
@@ -6481,9 +6627,9 @@ function setupAndroidNativeAndPwaDashboard() {
   ) {
     let swRefreshing = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (!swRefreshing && !location.search.includes('v=1.2.3')) {
+      if (!swRefreshing && !location.search.includes('v=1.2.4')) {
         swRefreshing = true;
-        window.location.replace('./dashboard.html?v=1.2.3');
+        window.location.replace('./dashboard.html?v=1.2.4');
       }
     });
     navigator.serviceWorker
