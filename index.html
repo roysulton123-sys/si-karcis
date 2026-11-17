@@ -1,0 +1,944 @@
+<!DOCTYPE html>
+<html lang="id" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" type="image/png" href="./assets/app-icon.png" />
+  <link rel="apple-touch-icon" href="./assets/app-icon.png" />
+  <title>SI-KARCIS — Sistem Manajemen Inventaris &amp; Retribusi Karcis</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#eff6ff',
+              100: '#dbeafe',
+              500: '#3b82f6',
+              600: '#2563eb',
+              700: '#1d4ed8',
+              800: '#1e40af',
+              900: '#1e3a8a'
+            }
+          }
+        }
+      }
+    };
+  </script>
+  <link rel="stylesheet" href="./css/style.css?v=1.2.4" />
+  <style>
+    /* Tekstur halus latar belakang: gradasi Navy ke Slate + pola perforasi karcis */
+    .ticket-bg-pattern {
+      background-image:
+        radial-gradient(circle at 18% 20%, rgba(29, 78, 216, 0.22), transparent 42%),
+        radial-gradient(circle at 85% 80%, rgba(5, 150, 105, 0.14), transparent 45%),
+        repeating-linear-gradient(
+          -45deg,
+          rgba(255, 255, 255, 0.018) 0px,
+          rgba(255, 255, 255, 0.018) 1px,
+          transparent 1px,
+          transparent 18px
+        );
+    }
+    @keyframes floatSlow {
+      0%, 100% { transform: translateY(0px); }
+      50% { transform: translateY(-5px); }
+    }
+    .floating-ticket-card {
+      animation: floatSlow 6s ease-in-out infinite;
+    }
+  </style>
+</head>
+<body class="min-h-full pearl-theme bg-pearl-pattern text-slate-800 antialiased selection:bg-blue-100 selection:text-blue-900">
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col gap-2.5 max-w-sm w-[calc(100%-2rem)] pointer-events-none"></div>
+
+  <!-- Session Verification Overlay -->
+  <div id="auth-checking-banner" class="hidden fixed inset-0 z-40 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl border border-slate-200 px-6 py-5 flex items-center gap-4 max-w-sm w-full">
+      <div class="w-8 h-8 rounded-full border-3 border-blue-700 border-t-transparent animate-spin shrink-0"></div>
+      <div>
+        <p class="text-sm font-semibold text-slate-900">Memverifikasi sesi...</p>
+        <p class="text-xs text-slate-500 mt-0.5">Mengarahkan ke dashboard</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="min-h-screen grid grid-cols-1 lg:grid-cols-12">
+    <!-- ======================================================================
+         PANEL KIRI: IDENTITAS INSTANSI & BRANDING BERSIH
+         ====================================================================== -->
+    <section class="hidden lg:flex lg:col-span-7 relative overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 ticket-bg-pattern text-white flex-col justify-between p-12 xl:p-16">
+      <div class="absolute inset-y-0 right-0 w-px border-r border-dashed border-slate-700/60 pointer-events-none"></div>
+
+      <div class="relative z-10 flex items-center gap-4">
+        <img
+          src="./assets/logo-kab-malang.png"
+          alt="Logo Pemerintah Kabupaten Malang"
+          class="h-14 w-auto object-contain shrink-0 drop-shadow-sm select-none"
+        />
+        <img
+          src="./assets/logo-dispora.png"
+          alt="Logo Dispora — Dinas Pemuda dan Olahraga"
+          class="h-10 w-auto object-contain logo-dispora-dark select-none"
+        />
+      </div>
+
+      <div class="relative z-10 my-auto max-w-lg space-y-3">
+        <span class="inline-block text-xs font-bold uppercase tracking-widest text-blue-400">
+          Dinas Pemuda dan Olahraga Kabupaten Malang
+        </span>
+        <h1 class="text-4xl xl:text-5xl font-extrabold tracking-tight text-white leading-tight">
+          SI-KARCIS
+        </h1>
+        <p class="text-base text-slate-300 font-medium">
+          Sistem Manajemen Inventaris &amp; Retribusi Karcis
+        </p>
+      </div>
+
+      <div class="relative z-10 flex items-center justify-between text-xs text-slate-400 border-t border-slate-800/80 pt-4">
+        <span>&copy; 2026 SI-KARCIS</span>
+      </div>
+    </section>
+
+    <!-- ======================================================================
+         PANEL KANAN: FORM LOGIN (DEFAULT) & PENDAFTARAN AKUN PETUGAS
+         ====================================================================== -->
+    <main class="lg:col-span-5 relative flex flex-col justify-center px-5 py-10 sm:px-10 md:px-14 lg:px-10 xl:px-12 bg-pearl-pattern">
+      <div id="local-mode-banner" class="hidden"></div>
+
+      <div class="w-full max-w-md mx-auto">
+        <!-- Header Mobile Ringkas -->
+        <div class="lg:hidden flex items-center gap-3.5 mb-6">
+          <img
+            src="./assets/logo-kab-malang.png"
+            alt="Logo Pemerintah Kabupaten Malang"
+            class="h-12 w-auto object-contain shrink-0 select-none"
+          />
+          <div class="min-w-0">
+            <h2 class="text-lg font-extrabold text-slate-900 tracking-tight leading-tight">SI-KARCIS</h2>
+            <img
+              src="./assets/logo-dispora.png"
+              alt="Logo Dispora — Dinas Pemuda dan Olahraga"
+              class="h-7 w-auto object-contain mt-1 select-none"
+            />
+          </div>
+        </div>
+
+        <!-- Auth Card -->
+        <div class="bg-white rounded-2xl border border-slate-200/90 shadow-sm p-6 sm:p-8">
+          <!-- Tab Switcher: Masuk (Login) sebagai tampilan awal -->
+          <div class="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-xl mb-6">
+            <button
+              type="button"
+              id="tab-btn-login"
+              class="py-2 px-3 rounded-lg text-xs sm:text-sm font-bold transition bg-white text-slate-900 shadow-2xs"
+            >
+              Masuk
+            </button>
+            <button
+              type="button"
+              id="tab-btn-register"
+              class="py-2 px-3 rounded-lg text-xs sm:text-sm font-semibold transition text-slate-600 hover:text-slate-900"
+            >
+              Daftar Akun
+            </button>
+          </div>
+
+          <!-- Inline Status / Error Box -->
+          <div id="auth-alert-box" class="hidden mb-5 rounded-xl border px-4 py-3 text-xs sm:text-sm flex items-start gap-2.5">
+            <svg class="w-5 h-5 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div id="auth-alert-text" class="flex-1 leading-relaxed"></div>
+          </div>
+
+          <!-- ==============================================================
+               PANEL 1: LOGIN FORM
+               ============================================================== -->
+          <div id="panel-login">
+            <h2 class="text-xl font-bold text-slate-900 tracking-tight mb-5">Masuk</h2>
+
+            <form id="login-form" class="space-y-4" novalidate>
+              <div>
+                <label for="login-email" class="block text-xs font-semibold text-slate-700 mb-1.5">Nama Lengkap atau Email</label>
+                <input
+                  id="login-email"
+                  type="text"
+                  required
+                  autocomplete="username"
+                  placeholder="Nama lengkap atau email"
+                  class="w-full px-3.5 py-2.5 text-base sm:text-sm rounded-xl border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-700/20 focus:border-blue-700 transition"
+                />
+              </div>
+
+              <div>
+                <label for="login-password" class="block text-xs font-semibold text-slate-700 mb-1.5">Kata Sandi</label>
+                <div class="relative">
+                  <input
+                    id="login-password"
+                    type="password"
+                    required
+                    autocomplete="current-password"
+                    placeholder="Kata sandi"
+                    class="w-full pl-3.5 pr-11 py-2.5 text-base sm:text-sm rounded-xl border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-700/20 focus:border-blue-700 transition"
+                  />
+                  <button
+                    type="button"
+                    id="toggle-password-btn"
+                    aria-label="Tampilkan kata sandi"
+                    class="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600"
+                  >
+                    <svg id="eye-icon-open" class="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                    <svg id="eye-icon-closed" class="w-4.5 h-4.5 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                id="btn-login-submit"
+                class="w-full mt-2 inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-blue-700 hover:bg-blue-800 active:bg-blue-900 text-white font-semibold text-sm shadow-sm shadow-blue-700/20 disabled:opacity-60 transition min-h-[44px]"
+              >
+                <span id="login-btn-spinner" class="hidden w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                <span id="login-btn-label">Masuk</span>
+              </button>
+            </form>
+
+            <div class="mt-6 pt-5 border-t border-slate-100 text-center text-xs text-slate-500">
+              Belum punya akun?
+              <button type="button" id="link-to-register" class="font-bold text-blue-700 hover:underline ml-1">
+                Daftar Akun &rarr;
+              </button>
+            </div>
+          </div>
+
+          <!-- ==============================================================
+               PANEL 2: USER REGISTRATION REQUEST FORM
+               ============================================================== -->
+          <div id="panel-register" class="hidden">
+            <h2 class="text-xl font-bold text-slate-900 tracking-tight mb-5">Daftar Akun Petugas</h2>
+
+            <form id="register-form" class="space-y-4" novalidate>
+              <div>
+                <label for="reg-nama" class="block text-xs font-semibold text-slate-700 mb-1.5">Nama Lengkap *</label>
+                <input
+                  id="reg-nama"
+                  type="text"
+                  required
+                  autocomplete="name"
+                  placeholder="Nama lengkap"
+                  class="w-full px-3.5 py-2.5 text-base sm:text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-700/20 focus:border-blue-700 transition"
+                />
+              </div>
+
+              <div>
+                <label for="reg-unit" class="block text-xs font-semibold text-slate-700 mb-1.5">Unit / Lokasi Tugas *</label>
+                <input
+                  id="reg-unit"
+                  type="text"
+                  required
+                  placeholder="Unit atau lokasi tugas"
+                  class="w-full px-3.5 py-2.5 text-base sm:text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-700/20 focus:border-blue-700 transition"
+                />
+              </div>
+
+              <div>
+                <label for="reg-password" class="block text-xs font-semibold text-slate-700 mb-1.5">Kata Sandi *</label>
+                <input
+                  id="reg-password"
+                  type="password"
+                  required
+                  minlength="6"
+                  autocomplete="new-password"
+                  placeholder="Minimal 6 karakter"
+                  class="w-full px-3.5 py-2.5 text-base sm:text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-700/20 focus:border-blue-700 transition"
+                />
+              </div>
+
+              <div>
+                <label for="reg-password-confirm" class="block text-xs font-semibold text-slate-700 mb-1.5">Ulangi Kata Sandi *</label>
+                <input
+                  id="reg-password-confirm"
+                  type="password"
+                  required
+                  minlength="6"
+                  autocomplete="new-password"
+                  placeholder="Ketik ulang kata sandi"
+                  class="w-full px-3.5 py-2.5 text-base sm:text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-700/20 focus:border-blue-700 transition"
+                />
+              </div>
+
+              <button
+                type="submit"
+                id="btn-register-submit"
+                class="w-full mt-2 inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm shadow-sm shadow-emerald-600/20 disabled:opacity-60 transition min-h-[44px]"
+              >
+                <span id="reg-btn-spinner" class="hidden w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                <span id="reg-btn-label">Daftar Akun</span>
+              </button>
+            </form>
+
+            <div class="mt-5 pt-4 border-t border-slate-100 text-center text-xs text-slate-500">
+              Sudah punya akun?
+              <button type="button" id="link-to-login" class="font-bold text-blue-700 hover:underline ml-1">
+                Masuk di sini
+              </button>
+            </div>
+          </div>
+
+          <!-- Panel Unduh Aplikasi Android (.APK) -->
+          <div id="android-download-wrapper" class="pt-5 mt-5 border-t border-slate-100">
+            <div id="android-download-box" class="rounded-xl border border-emerald-200/90 bg-emerald-50/70 p-3 flex items-center justify-between gap-3">
+              <div class="flex items-center gap-2.5 min-w-0">
+                <div class="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                  <svg class="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <p class="text-xs font-bold text-slate-900 truncate">Aplikasi Android SI-KARCIS</p>
+              </div>
+              <a
+                id="btn-download-android-apk"
+                href="./apk/SI-KARCIS-Dispora.apk?v=1.2.4"
+                download="SI-KARCIS-Dispora.apk"
+                class="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition shrink-0"
+              >
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                <span>Unduh .APK</span>
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script type="module">
+    import {
+      auth,
+      db,
+      isFirebaseConfigured,
+      DEFAULT_ADMIN_ACCOUNT,
+      isAdminEmail
+    } from './js/firebase-config.js';
+    import {
+      signInWithEmailAndPassword,
+      createUserWithEmailAndPassword,
+      onAuthStateChanged,
+      signOut
+    } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
+    import {
+      doc,
+      getDoc,
+      getDocs,
+      setDoc,
+      addDoc,
+      onSnapshot,
+      collection,
+      serverTimestamp
+    } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
+
+    const LOCAL_KEYS = {
+      USERS: 'sikarcis_local_users_v1',
+      SESSION: 'sikarcis_local_session_v1',
+      LOGS: 'sikarcis_local_logs_v1'
+    };
+
+    // ========================================================================
+    // CLEAN 3-SLIDE HERO CAROUSEL (AUTO-SLIDER + PAGINATION DOTS)
+    // ========================================================================
+    const slideNames = ['Ajukan Seri', 'Verifikasi Cepat', 'Rekap Otomatis'];
+    const slides = document.querySelectorAll('[data-carousel-slide]');
+    const dots = document.querySelectorAll('[data-carousel-dot]');
+    const stepLabel = document.getElementById('carousel-step-label');
+    let activeSlideIdx = 0;
+
+    function showCarouselSlide(idx) {
+      activeSlideIdx = idx;
+      slides.forEach((el, i) => {
+        el.classList.toggle('hidden', i !== idx);
+      });
+      dots.forEach((dot, i) => {
+        dot.className =
+          i === idx
+            ? 'w-6 h-1.5 rounded-full bg-blue-500 transition-all'
+            : 'w-2 h-1.5 rounded-full bg-slate-700 hover:bg-slate-500 transition-all';
+      });
+      if (stepLabel) {
+        stepLabel.textContent = `${idx + 1} / 3 • ${slideNames[idx] || ''}`;
+      }
+    }
+
+    dots.forEach((dot) => {
+      dot.addEventListener('click', () => {
+        const idx = parseInt(dot.getAttribute('data-carousel-dot') || '0', 10);
+        showCarouselSlide(idx);
+      });
+    });
+
+    if (slides.length > 0) {
+      setInterval(() => {
+        showCarouselSlide((activeSlideIdx + 1) % slides.length);
+      }, 4500);
+    }
+
+    // ========================================================================
+    // AUTHENTICATION & REGISTRATION LOGIC
+    // ========================================================================
+    const tabBtnLogin = document.getElementById('tab-btn-login');
+    const tabBtnRegister = document.getElementById('tab-btn-register');
+    const panelLogin = document.getElementById('panel-login');
+    const panelRegister = document.getElementById('panel-register');
+    const linkToRegister = document.getElementById('link-to-register');
+    const linkToLogin = document.getElementById('link-to-login');
+
+    const alertBox = document.getElementById('auth-alert-box');
+    const alertText = document.getElementById('auth-alert-text');
+    const toastContainer = document.getElementById('toast-container');
+    const authCheckingBanner = document.getElementById('auth-checking-banner');
+    const localModeBanner = document.getElementById('local-mode-banner');
+
+    const loginForm = document.getElementById('login-form');
+    const loginEmail = document.getElementById('login-email');
+    const loginPassword = document.getElementById('login-password');
+    const loginSubmitBtn = document.getElementById('btn-login-submit');
+    const loginSpinner = document.getElementById('login-btn-spinner');
+    const loginBtnLabel = document.getElementById('login-btn-label');
+
+    const registerForm = document.getElementById('register-form');
+    const regSubmitBtn = document.getElementById('btn-register-submit');
+    const regSpinner = document.getElementById('reg-btn-spinner');
+    const regBtnLabel = document.getElementById('reg-btn-label');
+
+    let isProcessingExplicitAuth = false;
+
+    function showToast(message, type = 'info') {
+      const styles = {
+        success: 'bg-emerald-600 text-white border-emerald-700',
+        error: 'bg-rose-600 text-white border-rose-700',
+        warning: 'bg-amber-500 text-white border-amber-600',
+        info: 'bg-slate-800 text-white border-slate-700'
+      };
+      const el = document.createElement('div');
+      el.className = `pointer-events-auto toast-enter flex items-start gap-2.5 px-4 py-3 rounded-xl border shadow-lg text-xs sm:text-sm font-medium ${styles[type] || styles.info}`;
+      el.innerHTML = `<span class="flex-1 leading-snug"></span><button type="button" class="opacity-80 hover:opacity-100 text-xs font-bold px-1">&times;</button>`;
+      el.querySelector('span').textContent = message;
+      el.querySelector('button').addEventListener('click', () => el.remove());
+      toastContainer.appendChild(el);
+      setTimeout(() => {
+        el.classList.remove('toast-enter');
+        el.classList.add('toast-exit');
+        setTimeout(() => el.remove(), 220);
+      }, 4000);
+    }
+
+    function showAlert(message, type = 'error') {
+      const palette = {
+        error: 'border-rose-200 bg-rose-50 text-rose-800',
+        warning: 'border-amber-300 bg-amber-50 text-amber-900',
+        success: 'border-emerald-200 bg-emerald-50 text-emerald-900'
+      };
+      alertBox.className = `mb-5 rounded-xl border px-4 py-3 text-xs sm:text-sm flex items-start gap-2.5 ${palette[type] || palette.error}`;
+      alertText.textContent = message;
+      alertBox.classList.remove('hidden');
+    }
+
+    function hideAlert() {
+      alertBox.classList.add('hidden');
+    }
+
+    function switchTab(tab) {
+      hideAlert();
+      const isLogin = tab === 'login';
+      panelLogin.classList.toggle('hidden', !isLogin);
+      panelRegister.classList.toggle('hidden', isLogin);
+
+      tabBtnLogin.className = isLogin
+        ? 'py-2 px-3 rounded-lg text-xs sm:text-sm font-bold transition bg-white text-slate-900 shadow-2xs'
+        : 'py-2 px-3 rounded-lg text-xs sm:text-sm font-semibold transition text-slate-600 hover:text-slate-900';
+
+      tabBtnRegister.className = !isLogin
+        ? 'py-2 px-3 rounded-lg text-xs sm:text-sm font-bold transition bg-white text-slate-900 shadow-2xs'
+        : 'py-2 px-3 rounded-lg text-xs sm:text-sm font-semibold transition text-slate-600 hover:text-slate-900';
+    }
+
+    tabBtnLogin.addEventListener('click', () => switchTab('login'));
+    tabBtnRegister.addEventListener('click', () => switchTab('register'));
+    linkToRegister.addEventListener('click', () => switchTab('register'));
+    linkToLogin.addEventListener('click', () => switchTab('login'));
+
+    document.getElementById('toggle-password-btn')?.addEventListener('click', () => {
+      const isPwd = loginPassword.type === 'password';
+      loginPassword.type = isPwd ? 'text' : 'password';
+      document.getElementById('eye-icon-open').classList.toggle('hidden', isPwd);
+      document.getElementById('eye-icon-closed').classList.toggle('hidden', !isPwd);
+    });
+
+    function buildPetugasEmail(nama) {
+      const slug = String(nama || '')
+        .trim()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '.')
+        .replace(/^\.+|\.+$/g, '');
+      return `${slug || 'petugas'}@petugas.sikarcis.id`;
+    }
+
+    function resolveLoginEmail(rawInput) {
+      const clean = String(rawInput || '').trim().toLowerCase();
+      if (!clean) return '';
+      if (clean.includes('@')) return clean;
+      if (clean === 'admin' || clean === DEFAULT_ADMIN_ACCOUNT.nama.toLowerCase()) {
+        return DEFAULT_ADMIN_ACCOUNT.email.toLowerCase();
+      }
+      return buildPetugasEmail(clean);
+    }
+
+    function getLocalUsers() {
+      try {
+        const raw = localStorage.getItem(LOCAL_KEYS.USERS);
+        const list = raw ? JSON.parse(raw) : [];
+        const hasAdmin = list.some(
+          (u) => String(u.email || '').toLowerCase() === DEFAULT_ADMIN_ACCOUNT.email.toLowerCase()
+        );
+        if (!hasAdmin) {
+          list.unshift({
+            uid: 'admin_default_uid',
+            nama: DEFAULT_ADMIN_ACCOUNT.nama,
+            nip: DEFAULT_ADMIN_ACCOUNT.nip,
+            unitTugas: DEFAULT_ADMIN_ACCOUNT.unitTugas,
+            noHp: DEFAULT_ADMIN_ACCOUNT.noHp,
+            email: DEFAULT_ADMIN_ACCOUNT.email,
+            password: DEFAULT_ADMIN_ACCOUNT.password,
+            role: 'admin',
+            status: 'approved',
+            createdAt: new Date().toISOString()
+          });
+          localStorage.setItem(LOCAL_KEYS.USERS, JSON.stringify(list));
+        }
+        return list;
+      } catch {
+        return [];
+      }
+    }
+
+    function saveLocalUsers(list) {
+      localStorage.setItem(LOCAL_KEYS.USERS, JSON.stringify(list));
+    }
+
+    function appendLocalLog(aksi, detail, userEmail) {
+      try {
+        const raw = localStorage.getItem(LOCAL_KEYS.LOGS);
+        const list = raw ? JSON.parse(raw) : [];
+        list.unshift({
+          id: 'log_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+          tahun: String(new Date().getFullYear()),
+          waktu: new Date().toISOString(),
+          aksi,
+          detail,
+          userEmail
+        });
+        localStorage.setItem(LOCAL_KEYS.LOGS, JSON.stringify(list));
+      } catch {
+        // ignore
+      }
+    }
+
+    function isCloudFallbackError(err) {
+      const code = String(err?.code || '').toLowerCase();
+      const msg = String(err?.message || '').toLowerCase();
+      return (
+        code === 'auth/configuration-not-found' ||
+        code === 'auth/operation-not-allowed' ||
+        code === 'auth/admin-restricted-operation' ||
+        code === 'auth/network-request-failed' ||
+        code === 'permission-denied' ||
+        code === 'unavailable' ||
+        code === 'failed-precondition' ||
+        code === 'not-found' ||
+        msg.includes('cloud firestore api has not been used') ||
+        msg.includes('permission-denied') ||
+        msg.includes('missing or insufficient permissions') ||
+        msg.includes('configuration-not-found') ||
+        msg.includes('operation-not-allowed')
+      );
+    }
+
+    async function syncUsersWithCloudFirestore() {
+      const localList = getLocalUsers();
+      try {
+        const snap = await getDocs(collection(db, 'karcis_users'));
+        const cloudMap = new Map();
+        snap.forEach((docSnap) => {
+          const d = docSnap.data() || {};
+          const uid = d.uid || docSnap.id;
+          cloudMap.set(uid, { ...d, uid });
+        });
+
+        // Pastikan Akun Admin Utama tersedia di Cloud Firestore
+        const hasAdminInCloud = Array.from(cloudMap.values()).some(
+          (u) => String(u.email || '').toLowerCase() === DEFAULT_ADMIN_ACCOUNT.email.toLowerCase()
+        );
+        if (!hasAdminInCloud) {
+          const adminDoc = {
+            uid: 'admin_default_uid',
+            nama: DEFAULT_ADMIN_ACCOUNT.nama,
+            nip: DEFAULT_ADMIN_ACCOUNT.nip,
+            unitTugas: DEFAULT_ADMIN_ACCOUNT.unitTugas,
+            noHp: DEFAULT_ADMIN_ACCOUNT.noHp,
+            email: DEFAULT_ADMIN_ACCOUNT.email,
+            password: DEFAULT_ADMIN_ACCOUNT.password,
+            role: 'admin',
+            status: 'approved',
+            createdAt: new Date().toISOString()
+          };
+          await setDoc(doc(db, 'karcis_users', adminDoc.uid), adminDoc, { merge: true });
+          cloudMap.set(adminDoc.uid, adminDoc);
+        }
+
+        // Jika Cloud benar-benar kosong saat migrasi perdana, unggah akun lokal non-dummy
+        const syncedLocalFlag = localStorage.getItem('sikarcis_users_migrated_cloud_v2');
+        if (!syncedLocalFlag && snap.empty) {
+          for (const locUser of localList) {
+            if (!locUser.uid || locUser.uid === 'local-admin-001') continue;
+            const existsInCloud = Array.from(cloudMap.values()).some(
+              (cu) =>
+                cu.uid === locUser.uid ||
+                String(cu.email || '').toLowerCase() === String(locUser.email || '').toLowerCase() ||
+                String(cu.nama || '').trim().toLowerCase() === String(locUser.nama || '').trim().toLowerCase()
+            );
+            if (!existsInCloud) {
+              await setDoc(doc(db, 'karcis_users', locUser.uid), locUser, { merge: true });
+              cloudMap.set(locUser.uid, locUser);
+            }
+          }
+        }
+        if (!syncedLocalFlag) {
+          localStorage.setItem('sikarcis_users_migrated_cloud_v2', '1');
+        }
+
+        const merged = Array.from(cloudMap.values());
+        saveLocalUsers(merged);
+        return merged;
+      } catch {
+        return localList;
+      }
+    }
+
+    function startLoginPageUsersLiveSync() {
+      if (!isFirebaseConfigured()) return;
+      try {
+        onSnapshot(
+          collection(db, 'karcis_users'),
+          (snapshot) => {
+            const list = [];
+            snapshot.forEach((docSnap) => {
+              const d = docSnap.data() || {};
+              list.push({ ...d, uid: d.uid || docSnap.id });
+            });
+            if (list.length > 0) {
+              saveLocalUsers(list);
+            }
+          },
+          () => {
+            // Abaikan error sementara listener login; akan disinkronkan saat login/fokus
+          }
+        );
+      } catch {
+        // Fallback aman ke sync manual
+      }
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          syncUsersWithCloudFirestore();
+        }
+      });
+      window.addEventListener('focus', () => {
+        syncUsersWithCloudFirestore();
+      });
+      window.addEventListener('online', () => {
+        syncUsersWithCloudFirestore();
+      });
+      window.addEventListener('sikarcis-force-sync', () => {
+        syncUsersWithCloudFirestore();
+      });
+      window.addEventListener('sikarcis-native-resume', () => {
+        syncUsersWithCloudFirestore();
+      });
+      setInterval(() => {
+        if (document.visibilityState === 'visible') {
+          syncUsersWithCloudFirestore();
+        }
+      }, 4000);
+    }
+
+    function setupAndroidAndPwaLoginUI() {
+      const isAndroidNative = Boolean(
+        window.AndroidBridge || /SIKarcisAndroid/i.test(navigator.userAgent || '')
+      );
+      const dlWrapper = document.getElementById('android-download-wrapper');
+      const dlBox = document.getElementById('android-download-box');
+
+      if (isAndroidNative) {
+        if (dlWrapper) dlWrapper.classList.add('hidden');
+        if (dlBox) dlBox.classList.add('hidden');
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then((regs) => regs.forEach((r) => r.unregister())).catch(() => {});
+        }
+      }
+
+      window.sikarcisHandleBackPress = function () {
+        if (typeof panelRegister !== 'undefined' && panelRegister && !panelRegister.classList.contains('hidden')) {
+          switchTab('login');
+          return true;
+        }
+        return false;
+      };
+
+      if (
+        !isAndroidNative &&
+        'serviceWorker' in navigator &&
+        location.protocol.startsWith('http') &&
+        location.hostname !== 'appassets.androidplatform.net'
+      ) {
+        let swRefreshing = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (!swRefreshing && !location.search.includes('v=1.2.4')) {
+            swRefreshing = true;
+            window.location.replace('./index.html?v=1.2.4');
+          }
+        });
+        navigator.serviceWorker
+          .register('./sw.js', { updateViaCache: 'none' })
+          .then((reg) => reg.update().catch(() => {}))
+          .catch(() => {});
+      }
+    }
+
+    async function performCloudOrLocalLogin(rawIdentifier, email, password) {
+      const users = await syncUsersWithCloudFirestore();
+      const inputLower = rawIdentifier.toLowerCase();
+      const found = users.find((u) => {
+        const matchAccount =
+          String(u.email || '').toLowerCase() === inputLower ||
+          String(u.email || '').toLowerCase() === email ||
+          String(u.nama || '').trim().toLowerCase() === inputLower;
+        if (!matchAccount) return false;
+        if (u.password) return u.password === password;
+        if (isAdminEmail(u.email)) return password === DEFAULT_ADMIN_ACCOUNT.password;
+        return false;
+      });
+      if (!found) {
+        throw new Error('Nama lengkap / email atau kata sandi tidak sesuai.');
+      }
+      if (found.status === 'pending') {
+        showAlert('Akun Anda sedang menunggu persetujuan Administrator.', 'warning');
+        showToast('Menunggu persetujuan Admin.', 'warning');
+        return false;
+      }
+      if (found.status === 'rejected') {
+        showAlert('Pengajuan akun Anda telah ditolak atau dinonaktifkan oleh Administrator.', 'error');
+        return false;
+      }
+      localStorage.setItem(LOCAL_KEYS.SESSION, JSON.stringify(found));
+      showToast(`Selamat datang, ${found.nama}!`, 'success');
+      window.location.replace('./dashboard.html?v=1.2.4');
+      return true;
+    }
+
+    async function performCloudOrLocalRegister(nama, unitTugas, internalEmail, password, assignedRole, assignedStatus) {
+      const users = await syncUsersWithCloudFirestore();
+      if (
+        users.some(
+          (u) =>
+            String(u.email || '').toLowerCase() === internalEmail ||
+            String(u.nama || '').trim().toLowerCase() === nama.toLowerCase()
+        )
+      ) {
+        throw new Error(
+          'Nama lengkap tersebut sudah terdaftar. Tambahkan pembeda pada nama (misal: Budi Santoso 2).'
+        );
+      }
+
+      const newUser = {
+        uid: 'user_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+        nama,
+        unitTugas,
+        email: internalEmail,
+        loginType: 'nama',
+        password,
+        role: assignedRole,
+        status: assignedStatus,
+        createdAt: new Date().toISOString()
+      };
+
+      try {
+        await setDoc(doc(db, 'karcis_users', newUser.uid), newUser);
+        await addDoc(collection(db, 'karcis_logs'), {
+          tahun: String(new Date().getFullYear()),
+          waktu: new Date().toISOString(),
+          aksi: 'DAFTAR_AKUN',
+          detail: `Pendaftaran akun petugas: ${nama} (${unitTugas})`,
+          userEmail: internalEmail
+        });
+        if (typeof BroadcastChannel !== 'undefined') {
+          try {
+            const ch = new BroadcastChannel('sikarcis_sync_v1');
+            ch.postMessage({ type: 'data-updated', scope: 'users', ts: Date.now() });
+            ch.close();
+          } catch {}
+        }
+      } catch {
+        // Fallback ke local bila sedang offline
+      }
+
+      users.push(newUser);
+      saveLocalUsers(users);
+      appendLocalLog('DAFTAR_AKUN', `Pendaftaran akun petugas: ${nama} (${unitTugas})`, internalEmail);
+
+      registerForm.reset();
+      switchTab('login');
+      showAlert(
+        `Pendaftaran berhasil dikirim. Gunakan nama "${nama}" untuk masuk setelah disetujui Admin.`,
+        'success'
+      );
+      showToast('Pendaftaran terkirim! Menunggu persetujuan Admin.', 'success');
+    }
+
+    (async function checkInitialSession() {
+      setupAndroidAndPwaLoginUI();
+      getLocalUsers();
+      if (!isFirebaseConfigured()) {
+        localModeBanner.classList.remove('hidden');
+      } else {
+        startLoginPageUsersLiveSync();
+      }
+      const existingSession = localStorage.getItem(LOCAL_KEYS.SESSION);
+      if (existingSession) {
+        try {
+          const parsed = JSON.parse(existingSession);
+          const users = await syncUsersWithCloudFirestore();
+          const freshUser = users.find(
+            (u) =>
+              u.uid === parsed.uid ||
+              String(u.email || '').toLowerCase() === String(parsed.email || '').toLowerCase()
+          );
+          if (freshUser && (freshUser.role === 'admin' || freshUser.status === 'approved')) {
+            localStorage.setItem(LOCAL_KEYS.SESSION, JSON.stringify(freshUser));
+            window.location.replace('./dashboard.html?v=1.2.4');
+            return;
+          } else {
+            localStorage.removeItem(LOCAL_KEYS.SESSION);
+          }
+        } catch {
+          localStorage.removeItem(LOCAL_KEYS.SESSION);
+        }
+      }
+    })();
+
+    loginForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      hideAlert();
+
+      const rawIdentifier = loginEmail.value.trim();
+      const password = loginPassword.value;
+
+      if (!rawIdentifier || !password) {
+        showAlert('Nama lengkap / email dan kata sandi wajib diisi.', 'warning');
+        return;
+      }
+
+      const email = resolveLoginEmail(rawIdentifier);
+
+      loginSubmitBtn.disabled = true;
+      loginSpinner.classList.remove('hidden');
+      loginBtnLabel.textContent = 'Memverifikasi...';
+
+      try {
+        isProcessingExplicitAuth = true;
+        await performCloudOrLocalLogin(rawIdentifier, email, password);
+      } catch (err) {
+        const msg = err?.message || 'Nama lengkap / email atau kata sandi salah.';
+        showAlert(msg, 'error');
+        showToast(msg, 'error');
+      } finally {
+        isProcessingExplicitAuth = false;
+        loginSubmitBtn.disabled = false;
+        loginSpinner.classList.add('hidden');
+        loginBtnLabel.textContent = 'Masuk ke Sistem';
+      }
+    });
+
+    registerForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      hideAlert();
+
+      const nama = document.getElementById('reg-nama').value.trim();
+      const unitTugas = document.getElementById('reg-unit').value.trim();
+      const password = document.getElementById('reg-password').value;
+      const passwordConfirm = document.getElementById('reg-password-confirm').value;
+
+      if (!nama || !unitTugas || !password || !passwordConfirm) {
+        showAlert('Harap lengkapi seluruh kolom pendaftaran.', 'warning');
+        return;
+      }
+
+      if (!/[a-zA-Z0-9]/.test(nama)) {
+        showAlert('Masukkan nama lengkap yang valid.', 'warning');
+        return;
+      }
+
+      if (password.length < 6) {
+        showAlert('Kata sandi minimal 6 karakter.', 'warning');
+        return;
+      }
+
+      if (password !== passwordConfirm) {
+        showAlert('Konfirmasi kata sandi tidak cocok.', 'warning');
+        return;
+      }
+
+      const internalEmail = buildPetugasEmail(nama);
+      if (nama.toLowerCase() === 'admin' || isAdminEmail(internalEmail)) {
+        showAlert('Nama tersebut tidak dapat digunakan untuk pendaftaran petugas.', 'warning');
+        return;
+      }
+
+      regSubmitBtn.disabled = true;
+      regSpinner.classList.remove('hidden');
+      regBtnLabel.textContent = 'Mendaftarkan...';
+
+      try {
+        isProcessingExplicitAuth = true;
+        await performCloudOrLocalRegister(nama, unitTugas, internalEmail, password, 'user', 'pending');
+      } catch (err) {
+        const msg = err?.message || 'Gagal mengirim pendaftaran.';
+        showAlert(msg, 'error');
+        showToast(msg, 'error');
+      } finally {
+        isProcessingExplicitAuth = false;
+        regSubmitBtn.disabled = false;
+        regSpinner.classList.add('hidden');
+        regBtnLabel.textContent = 'Daftar Akun';
+      }
+    });
+  </script>
+</body>
+</html>
