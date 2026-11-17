@@ -1791,14 +1791,11 @@ function renderDashboardAlerts() {
   if (pendingUsersCount > 0) {
     cards.push(`
       <div class="rounded-2xl bg-amber-50 border border-amber-200 p-4 flex items-center justify-between gap-4">
-        <div class="flex items-start gap-3">
+        <div class="flex items-center gap-3">
           <div class="w-10 h-10 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center shrink-0 font-bold">
             ${pendingUsersCount}
           </div>
-          <div>
-            <h4 class="text-xs sm:text-sm font-semibold text-amber-950">${pendingUsersCount} Akun Petugas Menunggu Persetujuan</h4>
-            <p class="text-xs text-amber-800 mt-0.5">Periksa pendaftaran baru agar petugas bisa masuk ke sistem.</p>
-          </div>
+          <h4 class="text-xs sm:text-sm font-semibold text-amber-950">${pendingUsersCount} Akun Petugas Menunggu Persetujuan</h4>
         </div>
         <button type="button" data-jump-nav="users" class="shrink-0 px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold transition">
           Cek Akun &rarr;
@@ -1810,14 +1807,11 @@ function renderDashboardAlerts() {
   if (pendingReqsCount > 0) {
     cards.push(`
       <div class="rounded-2xl bg-blue-50 border border-blue-200 p-4 flex items-center justify-between gap-4">
-        <div class="flex items-start gap-3">
+        <div class="flex items-center gap-3">
           <div class="w-10 h-10 rounded-xl bg-blue-700 text-white flex items-center justify-center shrink-0 font-bold">
             ${pendingReqsCount}
           </div>
-          <div>
-            <h4 class="text-xs sm:text-sm font-semibold text-blue-950">${pendingReqsCount} Permintaan Karcis Menunggu</h4>
-            <p class="text-xs text-blue-800 mt-0.5">Setujui permintaan dan pilih batch stok untuk diterbitkan.</p>
-          </div>
+          <h4 class="text-xs sm:text-sm font-semibold text-blue-950">${pendingReqsCount} Permintaan Karcis Menunggu</h4>
         </div>
         <button type="button" data-jump-nav="distribusi" class="shrink-0 px-3.5 py-2 rounded-xl bg-blue-700 hover:bg-blue-800 text-white text-xs font-semibold transition">
           Proses &rarr;
@@ -1929,21 +1923,8 @@ function renderDashboardKPIsAndLowStock() {
   if (!lowPanel) return;
 
   if (lowCount === 0) {
-    lowPanel.className =
-      'rounded-2xl border border-emerald-200/80 bg-emerald-50/70 p-4 flex items-center justify-between gap-4';
-    lowPanel.innerHTML = `
-      <div class="flex items-center gap-3">
-        <div class="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
-          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-          </svg>
-        </div>
-        <div>
-          <p class="text-xs sm:text-sm font-bold text-emerald-950">Seluruh Stok Gudang Berada di Atas Batas Minimum</p>
-          <p class="text-xs text-emerald-800">Semua fasilitas aktif memiliki cadangan karcis fisik yang mencukupi untuk Tahun Anggaran ${escapeHtml(state.tahun)}.</p>
-        </div>
-      </div>
-    `;
+    lowPanel.className = 'hidden';
+    lowPanel.innerHTML = '';
   } else {
     lowPanel.className = 'rounded-2xl border border-rose-200 bg-rose-50/80 p-4 sm:p-5 space-y-3';
     const badgesHtml = lowStockList
@@ -2973,7 +2954,7 @@ function updateUserDirectReturPreview() {
     const distId = val.slice(5);
     const distObj = state.distributions.find((d) => d.id === distId);
     if (!distObj) {
-      summaryEl.textContent = 'Pilih batch karcis yang ingin dikembalikan.';
+      summaryEl.textContent = '';
       return;
     }
     const prevRetur = Number(distObj.jumlahRetur) || 0;
@@ -2981,25 +2962,25 @@ function updateUserDirectReturPreview() {
     jmlInput.max = String(maxCanReturn);
 
     if (jml <= 0) {
-      summaryEl.innerHTML = `Maksimal dapat dikembalikan: <strong>${formatNumber(maxCanReturn)} Lembar</strong> dari seri <strong>${escapeHtml(distObj.seriKeluar)}</strong>.`;
+      summaryEl.innerHTML = `Sisa: <strong>${formatNumber(maxCanReturn)} Lembar</strong> (${escapeHtml(distObj.seriKeluar)})`;
       return;
     }
     const effectiveAdd = Math.min(maxCanReturn, jml);
     const calc = calculateReturBreakdown(distObj, prevRetur + effectiveAdd);
     const bdl = toBendelLembar(effectiveAdd);
-    summaryEl.innerHTML = `Mengembalikan <strong>${formatNumber(effectiveAdd)} Lembar</strong> (${bdl.shortFormatted}) ke Admin • Terpakai: <strong>${formatNumber(calc.jumlahTerjual)} Lbr</strong> (${formatRupiah(calc.totalNominal)}).`;
+    summaryEl.innerHTML = `Dikembalikan: <strong>${formatNumber(effectiveAdd)} Lembar</strong> (${bdl.shortFormatted}) • Terpakai: <strong>${formatNumber(calc.jumlahTerjual)} Lbr</strong> (${formatRupiah(calc.totalNominal)})`;
   } else if (val.startsWith('fac:')) {
     const facId = val.slice(4);
     const fac = state.facilities.find((f) => f.id === facId);
     jmlInput.removeAttribute('max');
     if (!fac || jml <= 0) {
-      summaryEl.textContent = 'Isikan berapa lembar karcis yang ingin dikembalikan ke Admin.';
+      summaryEl.textContent = '';
       return;
     }
     const bdl = toBendelLembar(jml);
-    summaryEl.innerHTML = `Mengembalikan <strong>${formatNumber(jml)} Lembar</strong> (${bdl.shortFormatted}) karcis <strong>${escapeHtml(fac.namaFasilitas)}</strong> langsung ke Gudang Stok Admin.`;
+    summaryEl.innerHTML = `Dikembalikan: <strong>${formatNumber(jml)} Lembar</strong> (${bdl.shortFormatted}) — <strong>${escapeHtml(fac.namaFasilitas)}</strong>`;
   } else {
-    summaryEl.textContent = 'Pilih karcis dan masukkan jumlah lembar yang dikembalikan.';
+    summaryEl.textContent = '';
   }
 }
 
@@ -4814,39 +4795,10 @@ function resetStokFormHelperState() {
 }
 
 function updateStokMatchHint() {
-  const nameInp = document.getElementById('stok-facility-name');
-  const kodeInp = document.getElementById('stok-kode');
   const hintEl = document.getElementById('stok-facility-match-hint');
-  if (!nameInp || !kodeInp || !hintEl) return;
-
-  const trimmed = (nameInp.value || '').trim();
-  if (!trimmed) {
+  if (hintEl) {
     hintEl.textContent = '';
-    hintEl.className = 'hidden text-[11px] font-medium mt-1';
-    return;
-  }
-
-  const kodeVal = normalizeKodeSeri(kodeInp.value);
-  const exactFac = kodeVal ? findFacilityByNameAndKode(trimmed, kodeVal) : findFacilityByName(trimmed);
-  const existingStockGroup = kodeVal ? findExistingStockGroupByNameAndKode(trimmed, kodeVal) : null;
-  const anySameNameFac = findFacilityByName(trimmed);
-
-  if (exactFac) {
-    hintEl.textContent = `Fasilitas & seri ${exactFac.kodeDefault || kodeVal} sudah terdaftar (${formatRupiah(exactFac.tarifSatuan)}/lbr) — stok digabung`;
-    hintEl.className = 'text-[11px] font-medium mt-1 text-blue-700';
-  } else if (existingStockGroup) {
-    const grpTarif =
-      existingStockGroup.tarifSatuan !== undefined && existingStockGroup.tarifSatuan !== null
-        ? Number(existingStockGroup.tarifSatuan) || 0
-        : Number(anySameNameFac?.tarifSatuan || 0);
-    hintEl.textContent = `Seri ${kodeVal} sudah ada (${formatRupiah(grpTarif)}/lbr) — digabung ke seri ${kodeVal} & dipisah dari seri lain`;
-    hintEl.className = 'text-[11px] font-medium mt-1 text-blue-700';
-  } else if (anySameNameFac && kodeVal) {
-    hintEl.textContent = `Seri ${kodeVal} berbeda dari seri ${anySameNameFac.kodeDefault || 'lain'} — dipisahkan & tidak digabung`;
-    hintEl.className = 'text-[11px] font-medium mt-1 text-emerald-700';
-  } else {
-    hintEl.textContent = 'Fasilitas baru — didaftarkan otomatis saat simpan';
-    hintEl.className = 'text-[11px] font-medium mt-1 text-emerald-700';
+    hintEl.className = 'hidden';
   }
 }
 
@@ -6215,43 +6167,11 @@ function bindEvents() {
   if (reqDateInput && !reqDateInput.value) reqDateInput.value = getTodayISO();
   document.getElementById('req-facility')?.addEventListener('change', updateUserRequestPreview);
   document.getElementById('req-jumlah')?.addEventListener('input', updateUserRequestPreview);
-  document.querySelectorAll('[data-req-preset]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const val = btn.getAttribute('data-req-preset');
-      const inp = document.getElementById('req-jumlah');
-      if (inp && val) {
-        inp.value = val;
-        updateUserRequestPreview();
-      }
-    });
-  });
   document.getElementById('form-user-request')?.addEventListener('submit', handleUserRequestSubmit);
 
   // Form Pengembalian Karcis Langsung dari Petugas ke Admin
   document.getElementById('user-retur-batch')?.addEventListener('change', updateUserDirectReturPreview);
   document.getElementById('user-retur-jumlah-input')?.addEventListener('input', updateUserDirectReturPreview);
-  document.querySelectorAll('[data-quick-retur-lembar]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const val = btn.getAttribute('data-quick-retur-lembar');
-      const inp = document.getElementById('user-retur-jumlah-input');
-      if (!inp) return;
-      if (val === 'max') {
-        const selectVal = document.getElementById('user-retur-batch')?.value || '';
-        if (selectVal.startsWith('dist:')) {
-          const distObj = state.distributions.find((d) => d.id === selectVal.slice(5));
-          if (distObj) {
-            const sisa = Math.max(0, (Number(distObj.jumlahKeluar) || 0) - (Number(distObj.jumlahRetur) || 0));
-            inp.value = String(sisa > 0 ? sisa : 1);
-          }
-        } else {
-          inp.value = '100';
-        }
-      } else if (val) {
-        inp.value = val;
-      }
-      updateUserDirectReturPreview();
-    });
-  });
   document.getElementById('form-user-retur-direct')?.addEventListener('submit', handleUserDirectReturSubmit);
 
   // Form Pengeluaran Langsung (Oleh Admin)
@@ -6260,25 +6180,6 @@ function bindEvents() {
   document.getElementById('dist-facility')?.addEventListener('change', populateDistStockSelect);
   document.getElementById('dist-stock')?.addEventListener('change', renderDistribusiLivePreview);
   document.getElementById('dist-jumlah')?.addEventListener('input', renderDistribusiLivePreview);
-  document.querySelectorAll('[data-dist-preset]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const val = btn.getAttribute('data-dist-preset');
-      const inp = document.getElementById('dist-jumlah');
-      if (inp && val) {
-        inp.value = val;
-        renderDistribusiLivePreview();
-      }
-    });
-  });
-  document.getElementById('btn-dist-preset-all')?.addEventListener('click', () => {
-    const stockId = document.getElementById('dist-stock')?.value || '';
-    const batch = state.stocks.find((s) => s.id === stockId);
-    const inp = document.getElementById('dist-jumlah');
-    if (batch && inp) {
-      inp.value = String(batch.sisaStok || 0);
-      renderDistribusiLivePreview();
-    }
-  });
   document.getElementById('form-distribusi')?.addEventListener('submit', handleDistribusiSubmit);
   document.getElementById('btn-reset-distribusi')?.addEventListener('click', () => {
     setTimeout(() => {
@@ -6360,22 +6261,6 @@ function bindEvents() {
     renderStokSummaryAndPreview();
   });
   document.getElementById('btn-stok-suggest-next')?.addEventListener('click', suggestNextStockSerial);
-  document.querySelectorAll('[data-stok-bendel]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const bdl = parseInt(btn.getAttribute('data-stok-bendel') || '1', 10);
-      const mulaiInp = document.getElementById('stok-mulai');
-      const sampaiInp = document.getElementById('stok-sampai');
-      if (!mulaiInp || !sampaiInp) return;
-      const start = Math.max(1, parseInt(mulaiInp.value || '1', 10) || 1);
-      mulaiInp.value = String(start);
-      sampaiInp.value = String(start + bdl * 100 - 1);
-      delete mulaiInp.dataset.autofilled;
-      delete sampaiInp.dataset.autofilled;
-      mulaiInp.dataset.manualEdited = 'true';
-      sampaiInp.dataset.manualEdited = 'true';
-      renderStokSummaryAndPreview();
-    });
-  });
   document.getElementById('form-stok')?.addEventListener('submit', handleStokSubmit);
   document.getElementById('btn-reset-stok')?.addEventListener('click', () => {
     setTimeout(() => {
